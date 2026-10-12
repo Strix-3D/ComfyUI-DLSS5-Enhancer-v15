@@ -1,4 +1,4 @@
-"""ComfyUI Nodes for DLSS 5 Visual Enhancer v15.0 - RTX Image & Video (VIDEO Output)"""
+"""ComfyUI Nodes for DLSS 5 Visual Enhancer v15.0 - RTX Image & Video File (Full Options)"""
 import subprocess
 import tempfile
 import torch
@@ -6,6 +6,9 @@ import numpy as np
 from PIL import Image
 from pathlib import Path
 import re
+import folder_paths
+import datetime
+import shutil
 
 from .paths import find_cli
 
@@ -90,122 +93,137 @@ class DLSS5_RTX_Enhance_v15:
         return (torch.cat(output_images, dim=0),)
 
 
-class DLSS5_Video_Enhance_v15:
-    """Neural Rendering + RTX Upscaling for Video.
-    Accepts native VIDEO type and outputs native VIDEO type."""
+class DLSS5_Video_File_Enhance_v15:
+    """Neural Rendering + RTX Upscaling for Video Files.
+    Accepts a file path string, processes the video natively via CLI, 
+    and saves the result to the ComfyUI output directory."""
     
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "video": ("VIDEO",), # Accepts native VIDEO type
+                "video_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Absolute path to the source video file"}),
                 "style": (["Default", "Natural", "Cinematic"], {"default": "Default"}),
                 "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
-                "scale": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 4.0, "step": 0.5}),
+                "scale": ("FLOAT", {"default": 1.0, "min": 1.0, "max": 4.0, "step": 0.5}),
+                "codec": (["HEVC", "H264", "AV1", "ProRes Proxy"], {"default": "HEVC"}),
+                "container": (["MKV", "MP4", "MOV"], {"default": "MKV"}),
+                "quality": (["Auto", "Good", "Best", "Max"], {"default": "Auto"}),
+                "filename_prefix": ("STRING", {"default": "DLSS5", "multiline": False}),
+                "output_directory": ("STRING", {"default": "", "multiline": False, "tooltip": "Empty writes to ComfyUI output directory"}),
+                "max_frames": ("INT", {"default": 0, "min": 0, "max": 1000000, "step": 1, "tooltip": "0 renders everything, any other value renders a preview"}),
+                "copy_audio": ("BOOLEAN", {"default": True}),
             }
         }
 
-    RETURN_TYPES = ("VIDEO",) # Outputs native VIDEO type for Save Video nodes
-    FUNCTION = "process_video"
+    RETURN_TYPES = ("STRING", "INT")
+    RETURN_NAMES = ("output_path", "frames")
+    FUNCTION = "process_video_file"
     CATEGORY = "DLSS5_v15"
 
-    def process_video(self, video, style, strength, scale):
+    def process_video_file(self, video_path, style, strength, scale, codec, container, 
+                          quality, filename_prefix, output_directory, max_frames, copy_audio):
         cli_path = find_cli()
         cli_style = STYLE_MAP.get(style, "0")
-        fmt = "png"
         
-        # Extract the image batch from the VIDEO dictionary
-        # Native ComfyUI Load Video outputs a dict with an 'images' key
-        if isinstance(video, dict):
-            images = video.get("images", video.get("frames", video))
-            original_audio = video.get("audio")
-            original_meta = video.get("meta", {})
+        input_path = Path(video_path.strip().strip('"'))
+        if not input_path.is_file():
+            raise Exception(f"Video file not found: {input_path}")
+
+        # Determine output path
+        if output_directory.strip():
+            out_dir = Path(output_directory.strip().strip('"'))
+            if not out_dir.is_absolute():
+                out_dir = Path(folder_paths.get_output_directory()) / out_dir
         else:
-            images = video
-            original_audio = None
-            original_meta = {}
-            
+            out_dir = Path(folder_paths.get_output_directory())
+        
+        out_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        container_ext = container.lower()
+        final_filename = f"{filename_prefix}_{timestamp}.{container_ext}"
+        final_output_path = out_dir / final_filename
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
-            input_dir = tmpdir / "input_frames"
-            render_dir = tmpdir / "render_frames"
-            upscale_dir = tmpdir / "upscale_frames"
-            
-            input_dir.mkdir()
-            
-            # 1. Save the entire batch of images to the input folder
-            print(f"[Video] Saving {len(images)} frames to temporary folder...")
-            for i, img in enumerate(images):
-                i_tensor = 255.0 * img.cpu().numpy()
-                img_pil = Image.fromarray(np.clip(i_tensor, 0, 255).astype(np.uint8))
-                img_pil.save(str(input_dir / f"frame_{i+1:04d}.png"))
+            render_path = tmpdir / f"render_out.{container_ext}"
+            upscale_path = tmpdir / f"upscale_out.{container_ext}"
 
-            # 2. Run Neural Render on the whole folder
-            print(f"[Video] Running Neural Render on folder...")
-            cmd_render = [
-                str(cli_path), "render", str(input_dir),
-                "-o", str(render_dir),
+            # Build CLI command
+            cmd = [
+                str(cli_path), "render", str(input_path),
+                "-o", str(render_path),
                 "--style", cli_style,
                 "--strength", str(strength),
-                "--format", fmt,
                 "--gpu", "auto",
                 "--quiet", "--json"
             ]
-            result = subprocess.run(cmd_render, capture_output=True, text=True)
+            
+            # Add codec and container options
+            codec_map = {"HEVC": "hevc", "H264": "h264", "AV1": "av1", "ProRes Proxy": "prores"}
+            cmd.extend(["--codec", codec_map.get(codec, "hevc")])
+            cmd.extend(["--container", container_ext])
+            
+            # Add quality option
+            quality_map = {"Auto": "auto", "Good": "good", "Best": "best", "Max": "max"}
+            cmd.extend(["--quality", quality_map.get(quality, "auto")])
+            
+            # Add max_frames if specified
+            if max_frames > 0:
+                cmd.extend(["--max-frames", str(max_frames)])
+            
+            # Add copy_audio option
+            if not copy_audio:
+                cmd.append("--no-audio")
+
+            # Step 1: Neural Render
+            print(f"[Video File] Processing: {input_path}")
+            result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 raise Exception(f"DLSS5 Video Render failed: {result.stderr}")
 
-            # 3. Run RTX Upscale on the rendered folder (if scale > 1.0)
-            current_dir = render_dir
+            # Step 2: RTX Upscale
+            current_path = render_path
             if scale > 1.0:
-                print(f"[Video] Running RTX Upscale on folder...")
+                print(f"[Video File] Upscaling...")
                 cmd_upscale = [
-                    str(cli_path), "upscale", str(render_dir),
-                    "-o", str(upscale_dir),
+                    str(cli_path), "upscale", str(render_path),
+                    "-o", str(upscale_path),
                     "--engine", "rtx",
                     "--scale", str(scale),
-                    "--format", fmt,
+                    "--codec", codec_map.get(codec, "hevc"),
+                    "--container", container_ext,
+                    "--quality", quality_map.get(quality, "auto"),
                     "--gpu", "auto",
                     "--quiet", "--json"
                 ]
+                if max_frames > 0:
+                    cmd_upscale.extend(["--max-frames", str(max_frames)])
+                if not copy_audio:
+                    cmd_upscale.append("--no-audio")
+                    
                 result = subprocess.run(cmd_upscale, capture_output=True, text=True)
                 if result.returncode != 0:
                     raise Exception(f"DLSS5 Video Upscale failed: {result.stderr}")
-                current_dir = upscale_dir
+                current_path = upscale_path
 
-            # 4. Load the processed frames back into a ComfyUI IMAGE batch
-            print(f"[Video] Loading processed frames back into ComfyUI...")
-            processed_files = sorted([f for f in current_dir.glob("*.png")], key=lambda x: natural_sort_key(x.name))
-            
-            if not processed_files:
-                raise Exception("No output frames were generated by the CLI.")
+            # Move final file to output directory
+            shutil.move(str(current_path), str(final_output_path))
+            print(f"[Video File] Saved to: {final_output_path}")
 
-            output_tensors = []
-            for file_path in processed_files:
-                out_img = Image.open(file_path).convert("RGB")
-                out_tensor = torch.from_numpy(np.array(out_img).astype(np.float32) / 255.0).unsqueeze(0)
-                output_tensors.append(out_tensor)
+            # Estimate frame count (simplified - CLI output or ffprobe would be more accurate)
+            frame_count = max_frames if max_frames > 0 else 0  # 0 means unknown/all frames
 
-            # Stack all frames back into a single batch
-            final_tensor = torch.cat(output_tensors, dim=0)
-
-            # 5. Reconstruct the VIDEO dictionary to pass to Save Video
-            # This preserves audio and metadata from the original load!
-            output_video = {
-                "images": final_tensor,
-                "audio": original_audio,
-                "meta": original_meta
-            }
-
-            return (output_video,)
+        return (str(final_output_path), frame_count)
 
 
 NODE_CLASS_MAPPINGS = {
     "DLSS5_RTX_Enhance_v15": DLSS5_RTX_Enhance_v15,
-    "DLSS5_Video_Enhance_v15": DLSS5_Video_Enhance_v15,
+    "DLSS5_Video_File_Enhance_v15": DLSS5_Video_File_Enhance_v15,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DLSS5_RTX_Enhance_v15": "DLSS 5 RTX Enhance (Image)",
-    "DLSS5_Video_Enhance_v15": "DLSS 5 RTX Enhance (Video)",
+    "DLSS5_Video_File_Enhance_v15": "DLSS5 Enhance Video File (v15)",
 }
