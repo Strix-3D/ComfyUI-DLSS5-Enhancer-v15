@@ -12,13 +12,11 @@ Unlike older community implementations that relied on ReShade injection, this pa
 
 ## How it Works
 
-In games, DLSS 5 runs as "3D-Guided" Neural Rendering: the engine hands the model its rendered frame together with geometry, texture, and lighting buffers. Video has none of that. What reaches the model here is the decoded frame plus motion vectors estimated from the footage itself, so the guidance is weaker than in a game, and the reconstruction is correspondingly more conservative.
+This pack acts as a bridge between ComfyUI and the native DLSS 5 Visual Enhancer CLI. 
 
-This pack acts as a bridge between ComfyUI and the native CLI:
-
-1. **Neural Rendering:** The node exports your frames and passes them to `VE_CLI.exe`. The CLI handles the D3D12 process, hosting the native NVIDIA runtime to reconstruct high-frequency material details.
+1. **Neural Rendering:** The node exports your frames or passes your video file path to `VE_CLI.exe`. The CLI handles the D3D12 process, hosting the native NVIDIA runtime to reconstruct high-frequency material details.
 2. **RTX Upscaling:** If requested, the reconstructed frames are passed through NVIDIA's RTX Super Resolution engine to intelligently enlarge the image up to 4x its original size.
-3. **Video Pipeline:** For video, the entire batch of frames is processed together in a single CLI pass. This allows the AI to maintain temporal consistency, preventing the flickering and jitter common in frame-by-frame upscaling.
+3. **Video Pipeline:** For video files, the CLI processes the entire file natively in a single pass. This allows the AI to maintain temporal consistency, preventing the flickering and jitter common in frame-by-frame upscaling, while efficiently handling audio and metadata.
 
 ---
 
@@ -38,7 +36,7 @@ This pack acts as a bridge between ComfyUI and the native CLI:
 ### Step 1: Install the Node Pack
 Clone this repository into your `ComfyUI/custom_nodes/` folder:
 
-`git clone https://github.com/YourUsername/ComfyUI-DLSS5-Enhancer-v15.git`
+`git clone https://github.com/Strix-3D/ComfyUI-DLSS5-Enhancer-v15.git`
 
 *(Alternatively, if published to ComfyUI Manager, search for `DLSS5-Enhancer-v15` and click Install).*
 
@@ -66,8 +64,8 @@ This pack includes two highly optimized nodes:
 ### 1. DLSS 5 RTX Enhance (Image)
 Takes an `IMAGE` batch, applies Neural Rendering, and optionally upscales it. Outputs an `IMAGE` batch.
 
-### 2. DLSS 5 RTX Enhance (Video)
-Takes a native `VIDEO` input, processes the entire sequence for temporal consistency, and outputs a native `VIDEO` type (preserving audio and metadata for direct connection to `Save Video` nodes).
+### 2. DLSS5 Enhance Video File (v15)
+Takes a **file path string**, processes the video natively via the CLI, and saves the result to your output directory. Outputs the new **file path string** and the **frame count**.
 
 ### Shared Controls
 
@@ -75,7 +73,20 @@ Takes a native `VIDEO` input, processes the entire sequence for temporal consist
 | --- | --- | --- |
 | **style** | Default, Natural, Cinematic | **Default:** Balanced detail reconstruction.<br>**Natural:** Subtle enhancement, preserves original textures.<br>**Cinematic:** Aggressive contrast and micro-detail enhancement. |
 | **strength** | 0.00 to 2.00 (Default: 1.0) | The intensity of the Neural Rendering effect. 1.0 is the standard NVIDIA tuning. Values > 1.5 can cause AI "hallucinations" (weird artifacts). |
-| **scale** | 1.0 to 4.0 (Default: 2.0) | The RTX upscaling multiplier. **Set to 1.0 to skip upscaling entirely** and only apply Neural Rendering. |
+| **scale** | 1.0 to 4.0 (Default: 1.0) | The RTX upscaling multiplier. **Set to 1.0 to skip upscaling entirely** and only apply Neural Rendering. |
+
+### Video File Specific Controls
+
+| Widget | Options / Range | Effect |
+| --- | --- | --- |
+| **video_path** | STRING | Absolute path to the source video file (e.g., `C:\Videos\clip.mp4`). |
+| **codec** | HEVC, H264, AV1, ProRes Proxy | The video encoder to use. **H264** is recommended for maximum compatibility. |
+| **container** | MKV, MP4, MOV | The output file container format. |
+| **quality** | Auto, Good, Best, Max | Encoding quality/bitrate. |
+| **filename_prefix** | STRING | Prefix for the output filename (a timestamp is automatically appended). |
+| **output_directory** | STRING | Where to save the file. Leave blank to use the default ComfyUI `output` folder. |
+| **max_frames** | INT (Default: 0) | **0** renders the entire video. Any other number renders a quick preview of that many frames. |
+| **copy_audio** | BOOLEAN | Whether to mux the original audio into the output file. |
 
 ---
 
@@ -100,12 +111,12 @@ The defaults below are starting points based on how the v15.0 native runtime beh
 ### Image Enhancement
 Because the DLSS5 nodes focus purely on AI reconstruction and upscaling, it is highly recommended to use standard ComfyUI nodes for post-processing.
 
-`Load Image` -> **`DLSS 5 RTX Enhance (Image)`** -> `Color Correction / Sharpening` -> `Save Image`
+`Load Image` ➔ **`DLSS 5 RTX Enhance (Image)`** ➔ `Color Correction / Sharpening` ➔ `Save Image`
 
-### Video Enhancement
-The video node accepts and outputs the native `VIDEO` type, making it seamless to drop into existing video workflows.
+### Video File Enhancement
+The video node accepts a file path and outputs a file path. To preview the result inside ComfyUI, feed the output path into a "Load Video (Path)" node.
 
-`Load Video` -> **`DLSS 5 RTX Enhance (Video)`** -> `Save Video`
+`Load Video (Path)`  **`DLSS5 Enhance Video File (v15)`** ➔ *(output_path)* ➔ `Load Video (Path)` ➔ `VHS Video Combine`
 
 ---
 
@@ -116,22 +127,24 @@ The video node accepts and outputs the native `VIDEO` type, making it seamless t
 | **Windows SmartScreen blocks `VE_CLI.exe`** | This is normal for unsigned community tools. Right-click the `.exe` in the `runtime` folder, select **Properties**, check **Unblock**, and click OK. |
 | **Runtime not found** | The 693MB runtime hasn't been downloaded. Run `install.py` manually and accept the license. |
 | **Node fails on GTX / AMD cards** | These GPUs lack the physical Tensor Cores required for DLSS/RTX AI processing. The nodes will not work on these cards. |
-| **Video processing is very slow** | Neural Rendering is computationally heavy. Processing a 100-frame video natively through the AI pipeline takes time. Ensure no other heavy GPU tasks (like games) are running. |
+| **Video processing is very slow** | Neural Rendering is computationally heavy. Processing a long video natively through the AI pipeline takes time. Ensure no other heavy GPU tasks (like games) are running. |
 | **Output looks "plastic" or weird** | Your `strength` is likely too high. Drop it to `0.7` or `1.0`, or switch the `style` to **Natural**. |
-| **Worker could not be started** | Antivirus is blocking the worker. Add the `runtime` folder to your antivirus exclusion list. |
 
 ---
 
 ## Project Layout
 
-    ComfyUI-DLSS5-Enhancer-v15/
-       install.py             Downloads the runtime and prompts for license acceptance
-       nodes.py               The ComfyUI node definitions (Image & Video)
-       paths.py               Runtime discovery and validation
-       __init__.py            ComfyUI extension entrypoint
-       README.md              This file
-       runtime/               Native runtime (VE_CLI.exe, NVIDIA DLLs) - *Not tracked in Git*
-       config.json            Local path configuration - *Not tracked in Git*
+```text
+ComfyUI-DLSS5-Enhancer-v15/
+   install.py             Downloads the runtime and prompts for license acceptance
+   nodes.py               The ComfyUI node definitions (Image & Video File)
+   paths.py               Runtime discovery and validation
+   __init__.py            ComfyUI extension entrypoint
+   README.md              This file
+   LICENSE                MIT License for the Python source code
+   runtime/               Native runtime (VE_CLI.exe, NVIDIA DLLs) - *Not tracked in Git*
+   config.json            Local path configuration - *Not tracked in Git*
+```
 
 ---
 
