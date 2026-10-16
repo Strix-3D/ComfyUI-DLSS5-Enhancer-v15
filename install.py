@@ -1,7 +1,6 @@
-"""Fetch and register the DLSS 5 Visual Enhancer v15.0 runtime."""
+"""Fetch and register the DLSS 5 Visual Enhancer v16.5 runtime."""
 import argparse
 import hashlib
-import shutil
 import sys
 import tempfile
 import urllib.request
@@ -11,9 +10,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paths import PACKAGE_ROOT, write_config
 
-# v15.0 Release URL and SHA-256 hash
-RELEASE_URL = "https://github.com/Merserk/dlss5-visual-enhancer/releases/download/v15.0/Visual.Enhancer.v15.0.zip"
-RELEASE_SHA256 = "0b29deb922c5e8601b1493feb935755e07b89164a88d3922d76e33b6e5ecb93e"  # Replace with actual SHA-256 of Visual.Enhancer.v15.0.zip
+# v16.5 Release URL and SHA-256 hash
+RELEASE_URL = "https://github.com/Merserk/dlss5-visual-enhancer/releases/download/v16.5/Visual.Enhancer.v16.5.zip"
+RELEASE_SHA256 = "23539866bae168613e89f9bfa426f7a60489a199b23409061b6ae4179a793e37"
 RUNTIME_TARGET = PACKAGE_ROOT / "runtime"
 
 NOTICE = """
@@ -21,7 +20,7 @@ NOTICE = """
 LICENSE AND REDISTRIBUTION NOTICE
 ================================================================================
 
-This script will download the DLSS 5 Visual Enhancer v15.0 release (about 693 MB) 
+This script will download the DLSS 5 Visual Enhancer v16.5 release (approx. 700 MB) 
 and extract its runtime components into your ComfyUI custom_nodes folder.
 
 The downloaded archive contains third-party binaries that are NOT owned by this 
@@ -53,7 +52,7 @@ def calculate_sha256(file_path: Path) -> str:
     return sha256_hash.hexdigest()
 
 def download(url: str, target: Path) -> Path:
-    print(f"Downloading {url} (This may take a while, ~693MB)...")
+    print(f"Downloading {url} (This may take a while, ~700MB)...")
     with urllib.request.urlopen(url) as response, target.open("wb") as sink:
         total = int(response.headers.get("Content-Length") or 0)
         received = 0
@@ -73,7 +72,7 @@ def verify_hash(archive_path: Path, expected_hash: str) -> bool:
     """Verify SHA-256 hash of downloaded file."""
     if not expected_hash or expected_hash == "YOUR_SHA256_HASH_HERE":
         print("WARNING: No SHA-256 hash configured. Skipping verification.")
-        return True
+        return False
     
     print("Verifying file integrity...")
     actual_hash = calculate_sha256(archive_path)
@@ -100,7 +99,7 @@ def confirm(auto_yes: bool) -> None:
         sys.exit("Installation aborted.")
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Install DLSS 5 Visual Enhancer v15.0")
+    parser = argparse.ArgumentParser(description="Install DLSS 5 Visual Enhancer v16.5")
     parser.add_argument("--runtime-dir", type=Path, help="Use an existing installation directory.")
     parser.add_argument("--url", default=RELEASE_URL, help="Release archive URL.")
     parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt (for ComfyUI Manager).")
@@ -119,7 +118,7 @@ def main() -> None:
 
     confirm(args.yes)
 
-    with tempfile.TemporaryDirectory(prefix="dlss5_v15-") as workspace:
+    with tempfile.TemporaryDirectory(prefix="dlss5_v16-") as workspace:
         archive = download(args.url, Path(workspace) / "release.zip")
         
         # Verify SHA-256 hash before extraction
