@@ -40,6 +40,9 @@ Clone this repository into your `ComfyUI/custom_nodes/` folder:
 
 *(Alternatively, if published to ComfyUI Manager, search for `DLSS5-Enhancer-v15` and click Install).*
 
+**Important for Manual Installations:** If you cloned the repository manually (rather than using ComfyUI Manager), you must install the Python dependencies. Open a PowerShell window in your main ComfyUI folder and run:
+`.\python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-DLSS5-Enhancer-v15\requirements.txt`
+
 ### Step 2: Download the Runtime & Accept the License
 **This node pack does not include the proprietary NVIDIA binaries.** You must download them using the included installer script.
 
@@ -145,6 +148,7 @@ ComfyUI-DLSS5-Enhancer-v15/
    __init__.py            ComfyUI extension entrypoint
    README.md              This file
    LICENSE                MIT License for the Python source code
+   requirements.txt       Python dependencies (imageio-ffmpeg)
    runtime/               Native runtime (VE_CLI.exe, NVIDIA DLLs) - *Not tracked in Git*
    config.json            Local path configuration - *Not tracked in Git*
 ```
