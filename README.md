@@ -117,6 +117,8 @@ Because the DLSS5 nodes focus purely on AI reconstruction and upscaling, it is h
 ### Video File Enhancement
 The video node accepts a file path and outputs a file path. To preview the result inside ComfyUI, feed the output path into a "Load Video (Path)" node.
 
+<img width="1426" height="741" alt="video_workflow" src="https://github.com/user-attachments/assets/73cfc595-adf1-401b-a3dd-12a505c61372" />
+
 `Load Video (Path)` ➔ **`DLSS5 Enhance Video File (v15)`** ➔ *(output_path)* ➔ `Load Video (Path)` ➔ `VHS Video Combine`
 
 ---
