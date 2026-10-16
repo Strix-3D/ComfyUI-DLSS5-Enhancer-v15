@@ -131,7 +131,7 @@ Because the DLSS5 nodes focus purely on AI reconstruction and upscaling, it is h
 ### Video File Enhancement
 The video node accepts a relative file path and outputs a new file path. To preview the result and preserve audio, feed the output path into a `Load Video (Path)` node, and connect both the `IMAGE` and `audio` outputs to `Video Combine`.
 
-<img width="1428" height="740" alt="video_workflow" src="https://github.com/user-attachments/assets/7aced349-684f-47e1-96ef-ddde212071cd" />
+<img width="1464" height="743" alt="video_workflow" src="https://github.com/user-attachments/assets/0c740179-3917-4dc8-a016-047c78b7b636" />
 
 **`DLSS5 Enhance (Video)`** ➔ *(output_path)* ➔ `Load Video (Path)` ➔ *(IMAGE & audio)* ➔ `Video Combine`
 
