@@ -65,7 +65,7 @@ This pack includes two highly optimized nodes:
 Takes an `IMAGE` batch, applies Neural Rendering, and optionally upscales it. Outputs an `IMAGE` batch.
 
 ### 2. DLSS5 Enhance Video File (v15)
-Takes a file path string, processes the video natively via the CLI, and saves the result to your output directory. Outputs the new file path string and the frame count.
+Takes a file path string, processes the video natively via the CLI, and saves the result to your output directory. Outputs the new file path string (`output_path`) and the frame count (`frames`).
 
 ### Shared Controls
 
@@ -115,11 +115,11 @@ Because the DLSS5 nodes focus purely on AI reconstruction and upscaling, it is h
 `Load Image` ➔ **`DLSS 5 RTX Enhance (Image)`** ➔ `Color Correction / Sharpening` ➔ `Save Image`
 
 ### Video File Enhancement
-The video node accepts a file path and outputs a new file path. To preview the result and preserve audio, feed the output path into a `Load Video (Path)` node, and connect both the `IMAGE` and `audio` outputs to `Video Combine`.
+The video node accepts a relative file path and outputs a new file path. To preview the result and preserve audio, feed the output path into a `Load Video (Path)` node, and connect both the `IMAGE` and `audio` outputs to `Video Combine`.
 
 <img width="1428" height="740" alt="video_workflow" src="https://github.com/user-attachments/assets/7aced349-684f-47e1-96ef-ddde212071cd" />
 
-`DLSS5 Enhance Video File (v15)`  *(output_path)* ➔ `Load Video (Path)` ➔ *(IMAGE & audio)* ➔ `Video Combine`
+`DLSS5 Enhance Video File (v15)` ➔ *(output_path)* ➔ `Load Video (Path)` ➔ *(IMAGE & audio)* ➔ `Video Combine`
 
 ---
 
@@ -147,3 +147,16 @@ ComfyUI-DLSS5-Enhancer-v15/
    LICENSE                MIT License for the Python source code
    runtime/               Native runtime (VE_CLI.exe, NVIDIA DLLs) - *Not tracked in Git*
    config.json            Local path configuration - *Not tracked in Git*
+```
+
+## Licensing and Attribution
+
+The Python source code in this repository is licensed under the **MIT License**. 
+
+**This repository does not host or redistribute the AI runtime binaries.** 
+The `install.py` script downloads the official **DLSS 5 Visual Enhancer v16.5** release from [Merserk/dlss5-visual-enhancer](https://github.com/Merserk/dlss5-visual-enhancer). The downloaded runtime contains proprietary components owned by their respective creators:
+*   **NVIDIA Corporation:** DLSS Super Resolution, Neural Rendering, and RTX Video SDKs (Proprietary).
+*   **Merserk:** Visual Enhancer CLI and Engine (Merserk Source License).
+*   **FFmpeg/mpv:** Media processing binaries (GPLv2/v3).
+
+By running the installer and typing `y`, you agree to use these components only under the terms permitted by their respective licenses. The worker protocol was reimplemented for this pack. The runtime and the original application come from [Merserk/dlss5-visual-enhancer](https://github.com/Merserk/dlss5-visual-enhancer), which makes NVIDIA's renderer usable outside a game engine. This project is not affiliated with or endorsed by NVIDIA or that project.
