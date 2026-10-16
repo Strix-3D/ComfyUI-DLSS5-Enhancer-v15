@@ -220,13 +220,12 @@ class DLSS5_Video_File_Enhance_v15:
 
         return (str(final_output_path), frame_count)
 
-
 NODE_CLASS_MAPPINGS = {
-    "DLSS5_RTX_Enhance_v15": DLSS5_RTX_Enhance_v15,
-    "DLSS5_Video_File_Enhance_v15": DLSS5_Video_File_Enhance_v15,
+    "DLSS5_Enhance_Image": DLSS5_RTX_Enhance_v15,
+    "DLSS5_Enhance_Video": DLSS5_Video_File_Enhance_v15,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "DLSS5_RTX_Enhance_v15": "DLSS 5 RTX Enhance (Image)",
-    "DLSS5_Video_File_Enhance_v15": "DLSS5 Enhance Video File (v15)",
+    "DLSS5_Enhance_Image": "DLSS5 Enhance (Image)",
+    "DLSS5_Enhance_Video": "DLSS5 Enhance (Video)",
 }
