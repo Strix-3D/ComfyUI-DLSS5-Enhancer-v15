@@ -115,9 +115,9 @@ Because the DLSS5 nodes focus purely on AI reconstruction and upscaling, it is h
 `Load Image` ➔ **`DLSS 5 RTX Enhance (Image)`** ➔ `Color Correction / Sharpening` ➔ `Save Image`
 
 ### Video File Enhancement
-The video node accepts a file path and outputs a file path. To preview the result inside ComfyUI, feed the output path into a "Load Video (Path)" node.
+The video node accepts a file path and outputs a new file path. To preview the result and preserve audio, feed the output path into a Load Video (Path) node, and connect both the IMAGE and audio outputs to Video Combine.
 
-<img width="1426" height="741" alt="video_workflow" src="https://github.com/user-attachments/assets/73cfc595-adf1-401b-a3dd-12a505c61372" />
+<img width="1428" height="740" alt="video_workflow" src="https://github.com/user-attachments/assets/7aced349-684f-47e1-96ef-ddde212071cd" />
 
 `Load Video (Path)` ➔ **`DLSS5 Enhance Video File (v15)`** ➔ *(output_path)* ➔ `Load Video (Path)` ➔ `VHS Video Combine`
 
