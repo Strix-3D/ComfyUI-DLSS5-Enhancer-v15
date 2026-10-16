@@ -2,7 +2,7 @@
 
 Run NVIDIA DLSS 5 Neural Rendering over your frames and videos, directly inside ComfyUI.
 
-DLSS 5 is NVIDIA's neural rendering pass. In a game, it reconstructs the material and lighting detail that real-time rendering has to leave out, such as skin subsurface scattering, light transmission through hair, and contact shadows. This node pack drives that same native renderer over video frames and image batches, with optional 1x to 4x RTX upscaling.
+DLSS 5 is NVIDIA's neural rendering pass. In a game, it reconstructs the material and lighting detail that real-time rendering has to leave out, such as skin subsurface scattering, light transmission through hair, and contact shadows. This node pack drives that same native renderer over video frames and image batches, with optional 1x to 4x RTX upscaling and DLSS Frame Generation.
 
 It is not a filter that imitates a look. Frames go to the native renderer and come back reconstructed. The model reconstructs materials and recovers structure (skin, hair, fabric) that the source only implied, rather than just sharpening edges.
 
@@ -16,7 +16,8 @@ This pack acts as a bridge between ComfyUI and the native DLSS 5 Visual Enhancer
 
 1. **Neural Rendering:** The node exports your frames or passes your video file path to `VE_CLI.exe`. The CLI handles the D3D12 process, hosting the native NVIDIA runtime to reconstruct high-frequency material details.
 2. **RTX Upscaling:** If requested, the reconstructed frames are passed through NVIDIA's RTX Super Resolution engine to intelligently enlarge the image up to 4x its original size.
-3. **Video Pipeline:** For video files, the CLI processes the entire file natively in a single pass. This allows the AI to maintain temporal consistency, preventing the flickering and jitter common in frame-by-frame upscaling, while efficiently handling audio and metadata.
+3. **DLSS Frame Generation:** Optionally interpolates video to a target FPS using DLSS Frame Generation for ultra-smooth playback. *(Requires RTX 40 or 50 Series GPU).*
+4. **Video Pipeline:** For video files, the CLI processes the entire file natively in a single pass. This allows the AI to maintain temporal consistency, preventing the flickering and jitter common in frame-by-frame upscaling, while efficiently handling audio and metadata.
 
 ---
 
@@ -25,6 +26,7 @@ This pack acts as a bridge between ComfyUI and the native DLSS 5 Visual Enhancer
 | Item | Requirement |
 | --- | --- |
 | **GPU** | **NVIDIA RTX 20, 30, 40, or 50 Series.** (GTX, AMD, and Intel GPUs are not supported as they lack the required Tensor Cores). |
+| **GPU (Frame Gen)** | **DLSS Frame Generation requires RTX 40 or 50 Series.** Enable Hardware-accelerated GPU scheduling in Windows. |
 | **Driver** | A recent NVIDIA Game Ready or Studio Driver (560.xx or newer recommended). |
 | **OS** | Windows only. |
 | **ComfyUI** | A recent build supporting standard `IMAGE` and `VIDEO` tensor types. |
@@ -36,18 +38,15 @@ This pack acts as a bridge between ComfyUI and the native DLSS 5 Visual Enhancer
 ### Step 1: Install the Node Pack
 Clone this repository into your `ComfyUI/custom_nodes/` folder:
 
-Open a PowerShell window in your ComfyUI/custom_nodes/ folder and run:
-
-```cmd
+```bash
 git clone https://github.com/Strix-3D/ComfyUI-DLSS5-Enhancer-v15.git
 ```
 
 *(Alternatively, if published to ComfyUI Manager, search for `DLSS5-Enhancer-v15` and click Install).*
 
-**Important for Manual Installations:** If you cloned the repository manually (rather than using ComfyUI Manager), you must install the Python dependencies. 
+**Important for Manual Installations:** If you cloned the repository manually (rather than using ComfyUI Manager), you must install the Python dependencies. Open a PowerShell window in your main ComfyUI folder and run:
 
-Open a PowerShell window in your main ComfyUI folder (the one containing python_embeded) and run:
-```cmd
+```powershell
 .\python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-DLSS5-Enhancer-v15\requirements.txt
 ```
 
@@ -57,13 +56,13 @@ Open a PowerShell window in your main ComfyUI folder (the one containing python_
 1. Open a PowerShell window in your main ComfyUI folder (the one containing `python_embeded`).
 2. Run the following command:
 
-   ```cmd
-   .\python_embeded\python.exe ComfyUI\custom_nodes\ComfyUI-DLSS5-Enhancer-v15\install.py
-   ```
+```powershell
+.\python_embeded\python.exe ComfyUI\custom_nodes\ComfyUI-DLSS5-Enhancer-v15\install.py
+```
 
-4. **Read the License Notice:** The script will display a list of third-party components (NVIDIA, FFmpeg, mpv, etc.) and their respective licenses.
-5. **Accept the Terms:** Type `y` and press **Enter** to confirm you accept the terms and wish to proceed.
-6. Wait for the **~700MB** runtime to download and extract into the `runtime/` folder.
+3. **Read the License Notice:** The script will display a list of third-party components (NVIDIA, FFmpeg, mpv, etc.) and their respective licenses.
+4. **Accept the Terms:** Type `y` and press **Enter** to confirm you accept the terms and wish to proceed.
+5. Wait for the **~700MB** runtime to download and extract into the `runtime/` folder.
 
 ### Step 3: Restart ComfyUI
 Once the installation is complete, restart ComfyUI. The nodes will now appear in your menu under the `DLSS5_v15` category.
@@ -96,6 +95,7 @@ Takes a file path string, processes the video natively via the CLI, and saves th
 | **codec** | HEVC, H264, AV1, ProRes Proxy | The video encoder to use. **H264** is recommended for maximum compatibility. |
 | **container** | MKV, MP4, MOV | The output file container format. |
 | **quality** | Auto, Good, Best, Max | Encoding quality/bitrate. |
+| **target_fps** | INT (0-120, Default: 0) | **0 = disabled.** Target FPS for DLSS Frame Generation interpolation. *(Requires RTX 40/50 Series GPU).* |
 | **filename_prefix** | STRING | Prefix for the output filename (a timestamp is automatically appended). |
 | **output_directory** | STRING | Relative subfolder path within ComfyUI output directory. Leave blank to use the default output folder. |
 | **copy_audio** | BOOLEAN | Whether to mux the original audio into the output file. |
@@ -110,6 +110,7 @@ The defaults below are starting points based on how the **v16.5** native runtime
 | --- | --- |
 | **Clean up generated video, same resolution** | Defaults: `scale` 1.0, `style` Default, `strength` 1.0 |
 | **Clean up and upscale** | Same as above, with `scale` 2.0 |
+| **Smooth 30fps to 60fps** | Defaults plus `target_fps` 60 *(RTX 40/50 only)* |
 | **Most realistic faces** | Defaults plus `style` Natural, `strength` 0.8 |
 | **More contrast and punch** | `style` Cinematic, `strength` 1.0 (check the shadows) |
 | **Output looks too strong/plastic** | Drop `strength` to 0.6 or 0.7, or switch `style` to Natural |
@@ -132,7 +133,7 @@ The video node accepts a relative file path and outputs a new file path. To prev
 
 <img width="1428" height="740" alt="video_workflow" src="https://github.com/user-attachments/assets/7aced349-684f-47e1-96ef-ddde212071cd" />
 
-`DLSS5 Enhance (Video)` ➔ *(output_path)* ➔ `Load Video (Path)` ➔ *(IMAGE & audio)* ➔ `Video Combine`
+**`DLSS5 Enhance (Video)`** ➔ *(output_path)* ➔ `Load Video (Path)` ➔ *(IMAGE & audio)* ➔ `Video Combine`
 
 ---
 
@@ -143,6 +144,7 @@ The video node accepts a relative file path and outputs a new file path. To prev
 | **Windows SmartScreen blocks `VE_CLI.exe`** | This is normal for unsigned community tools. Right-click the `.exe` in the `runtime` folder, select **Properties**, check **Unblock**, and click OK. |
 | **Runtime not found** | The ~700MB runtime hasn't been downloaded. Run `install.py` manually and accept the license. |
 | **Node fails on GTX / AMD cards** | These GPUs lack the physical Tensor Cores required for DLSS/RTX AI processing. The nodes will not work on these cards. |
+| **Frame Generation fails on RTX 20/30** | DLSS Frame Generation strictly requires an **RTX 40 or 50 Series** GPU. Set `target_fps` to `0` to disable it. |
 | **Video processing is very slow** | Neural Rendering is computationally heavy. Processing a long video natively through the AI pipeline takes time. Ensure no other heavy GPU tasks (like games) are running. |
 | **Output looks "plastic" or weird** | Your `strength` is likely too high. Drop it to `0.7` or `1.0`, or switch the `style` to **Natural**. |
 
@@ -163,13 +165,15 @@ ComfyUI-DLSS5-Enhancer-v15/
    config.json            Local path configuration - *Not tracked in Git*
 ```
 
+---
+
 ## Licensing and Attribution
 
 The Python source code in this repository is licensed under the **MIT License**. 
 
 **This repository does not host or redistribute the AI runtime binaries.** 
 The `install.py` script downloads the official **DLSS 5 Visual Enhancer v16.5** release from [Merserk/dlss5-visual-enhancer](https://github.com/Merserk/dlss5-visual-enhancer). The downloaded runtime contains proprietary components owned by their respective creators:
-*   **NVIDIA Corporation:** DLSS Super Resolution, Neural Rendering, and RTX Video SDKs (Proprietary).
+*   **NVIDIA Corporation:** DLSS Super Resolution, Neural Rendering, Frame Generation, and RTX Video SDKs (Proprietary).
 *   **Merserk:** Visual Enhancer CLI and Engine (Merserk Source License).
 *   **FFmpeg/mpv:** Media processing binaries (GPLv2/v3).
 
