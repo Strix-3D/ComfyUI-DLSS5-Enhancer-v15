@@ -6,7 +6,7 @@ DLSS 5 is NVIDIA's neural rendering pass. In a game, it reconstructs the materia
 
 It is not a filter that imitates a look. Frames go to the native renderer and come back reconstructed. The model reconstructs materials and recovers structure (skin, hair, fabric) that the source only implied, rather than just sharpening edges.
 
-Unlike older community implementations that relied on ReShade injection, this pack drives the official **v15.0 headless CLI** (`VE_CLI.exe`), providing a stable, native, and highly optimized pipeline.
+Unlike older community implementations that relied on ReShade injection, this pack drives the official **v16.5 headless CLI** (`VE_CLI.exe`), providing a stable, native, and highly optimized pipeline.
 
 ---
 
@@ -50,7 +50,7 @@ Clone this repository into your `ComfyUI/custom_nodes/` folder:
 
 3. **Read the License Notice:** The script will display a list of third-party components (NVIDIA, FFmpeg, mpv, etc.) and their respective licenses.
 4. **Accept the Terms:** Type `y` and press **Enter** to confirm you accept the terms and wish to proceed.
-5. Wait for the ~693MB runtime to download and extract into the `runtime/` folder.
+5. Wait for the **~700MB** runtime to download and extract into the `runtime/` folder.
 
 ### Step 3: Restart ComfyUI
 Once the installation is complete, restart ComfyUI. The nodes will now appear in your menu under the `DLSS5_v15` category.
@@ -79,7 +79,7 @@ Takes a file path string, processes the video natively via the CLI, and saves th
 
 | Widget | Options / Range | Effect |
 | --- | --- | --- |
-| **video_path** | STRING | Relative path to video file within ComfyUI input folder (e.g., `my_video.mp4`). |
+| **video_path** | STRING | **Relative path** to video file within ComfyUI input folder (e.g., `my_video.mp4`). *Absolute paths are blocked for security.* |
 | **codec** | HEVC, H264, AV1, ProRes Proxy | The video encoder to use. **H264** is recommended for maximum compatibility. |
 | **container** | MKV, MP4, MOV | The output file container format. |
 | **quality** | Auto, Good, Best, Max | Encoding quality/bitrate. |
@@ -91,7 +91,7 @@ Takes a file path string, processes the video natively via the CLI, and saves th
 
 ## Recommended Settings
 
-The defaults below are starting points based on how the v15.0 native runtime behaves:
+The defaults below are starting points based on how the **v16.5** native runtime behaves:
 
 | Goal | Settings |
 | --- | --- |
@@ -115,11 +115,11 @@ Because the DLSS5 nodes focus purely on AI reconstruction and upscaling, it is h
 `Load Image` ➔ **`DLSS 5 RTX Enhance (Image)`** ➔ `Color Correction / Sharpening` ➔ `Save Image`
 
 ### Video File Enhancement
-The video node accepts a file path and outputs a new file path. To preview the result and preserve audio, feed the output path into a Load Video (Path) node, and connect both the IMAGE and audio outputs to Video Combine.
+The video node accepts a file path and outputs a new file path. To preview the result and preserve audio, feed the output path into a `Load Video (Path)` node, and connect both the `IMAGE` and `audio` outputs to `Video Combine`.
 
 <img width="1428" height="740" alt="video_workflow" src="https://github.com/user-attachments/assets/7aced349-684f-47e1-96ef-ddde212071cd" />
 
-`Load Video (Path)` ➔ **`DLSS5 Enhance Video File (v15)`** ➔ *(output_path)* ➔ `Load Video (Path)` ➔ `VHS Video Combine`
+`DLSS5 Enhance Video File (v15)`  *(output_path)* ➔ `Load Video (Path)` ➔ *(IMAGE & audio)* ➔ `Video Combine`
 
 ---
 
@@ -128,7 +128,7 @@ The video node accepts a file path and outputs a new file path. To preview the r
 | Message / Issue | Cause and Fix |
 | --- | --- |
 | **Windows SmartScreen blocks `VE_CLI.exe`** | This is normal for unsigned community tools. Right-click the `.exe` in the `runtime` folder, select **Properties**, check **Unblock**, and click OK. |
-| **Runtime not found** | The 693MB runtime hasn't been downloaded. Run `install.py` manually and accept the license. |
+| **Runtime not found** | The ~700MB runtime hasn't been downloaded. Run `install.py` manually and accept the license. |
 | **Node fails on GTX / AMD cards** | These GPUs lack the physical Tensor Cores required for DLSS/RTX AI processing. The nodes will not work on these cards. |
 | **Video processing is very slow** | Neural Rendering is computationally heavy. Processing a long video natively through the AI pipeline takes time. Ensure no other heavy GPU tasks (like games) are running. |
 | **Output looks "plastic" or weird** | Your `strength` is likely too high. Drop it to `0.7` or `1.0`, or switch the `style` to **Natural**. |
@@ -147,18 +147,3 @@ ComfyUI-DLSS5-Enhancer-v15/
    LICENSE                MIT License for the Python source code
    runtime/               Native runtime (VE_CLI.exe, NVIDIA DLLs) - *Not tracked in Git*
    config.json            Local path configuration - *Not tracked in Git*
-```
-
----
-
-## Licensing and Attribution
-
-The Python source code in this repository is licensed under the **MIT License**. 
-
-**This repository does not host or redistribute the AI runtime binaries.** 
-The `install.py` script downloads the official **DLSS 5 Visual Enhancer v15.0** release from [Merserk/dlss5-visual-enhancer](https://github.com/Merserk/dlss5-visual-enhancer). The downloaded runtime contains proprietary components owned by their respective creators:
-*   **NVIDIA Corporation:** DLSS Super Resolution, Neural Rendering, and RTX Video SDKs (Proprietary).
-*   **Merserk:** Visual Enhancer CLI and Engine (Merserk Source License).
-*   **FFmpeg/mpv:** Media processing binaries (GPLv2/v3).
-
-By running the installer and typing `y`, you agree to use these components only under the terms permitted by their respective licenses. The worker protocol was reimplemented for this pack. The runtime and the original application come from [Merserk/dlss5-visual-enhancer](https://github.com/Merserk/dlss5-visual-enhancer), which makes NVIDIA's renderer usable outside a game engine. This project is not affiliated with or endorsed by NVIDIA or that project.
