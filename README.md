@@ -109,6 +109,8 @@ The defaults below are starting points based on how the v15.0 native runtime beh
 ## Example Workflows
 
 ### Image Enhancement
+<img width="1255" height="883" alt="dlss5_example" src="https://github.com/user-attachments/assets/c38672f6-a992-4598-81cd-274112ee62c6" />
+
 Because the DLSS5 nodes focus purely on AI reconstruction and upscaling, it is highly recommended to use standard ComfyUI nodes for post-processing.
 
 `Load Image` ➔ **`DLSS 5 RTX Enhance (Image)`** ➔ `Color Correction / Sharpening` ➔ `Save Image`
