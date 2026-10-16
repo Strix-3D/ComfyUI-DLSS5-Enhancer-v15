@@ -1,5 +1,6 @@
 """Fetch and register the DLSS 5 Visual Enhancer v15.0 runtime."""
 import argparse
+import hashlib
 import shutil
 import sys
 import tempfile
@@ -10,8 +11,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paths import PACKAGE_ROOT, write_config
 
-# v15.0 Release URL
+# v15.0 Release URL and SHA-256 hash
 RELEASE_URL = "https://github.com/Merserk/dlss5-visual-enhancer/releases/download/v15.0/Visual.Enhancer.v15.0.zip"
+RELEASE_SHA256 = "0b29deb922c5e8601b1493feb935755e07b89164a88d3922d76e33b6e5ecb93e"  # Replace with actual SHA-256 of Visual.Enhancer.v15.0.zip
 RUNTIME_TARGET = PACKAGE_ROOT / "runtime"
 
 NOTICE = """
@@ -42,6 +44,14 @@ This project is not affiliated with NVIDIA, Merserk, ReShade, RenoDX, or FFmpeg.
 ================================================================================
 """
 
+def calculate_sha256(file_path: Path) -> str:
+    """Calculate SHA-256 hash of a file."""
+    sha256_hash = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(block)
+    return sha256_hash.hexdigest()
+
 def download(url: str, target: Path) -> Path:
     print(f"Downloading {url} (This may take a while, ~693MB)...")
     with urllib.request.urlopen(url) as response, target.open("wb") as sink:
@@ -59,11 +69,26 @@ def download(url: str, target: Path) -> Path:
     print("\nDownload complete.")
     return target
 
+def verify_hash(archive_path: Path, expected_hash: str) -> bool:
+    """Verify SHA-256 hash of downloaded file."""
+    if not expected_hash or expected_hash == "YOUR_SHA256_HASH_HERE":
+        print("WARNING: No SHA-256 hash configured. Skipping verification.")
+        return True
+    
+    print("Verifying file integrity...")
+    actual_hash = calculate_sha256(archive_path)
+    if actual_hash.lower() != expected_hash.lower():
+        print(f"ERROR: SHA-256 mismatch!")
+        print(f"  Expected: {expected_hash}")
+        print(f"  Actual:   {actual_hash}")
+        return False
+    print("File integrity verified.")
+    return True
+
 def extract(archive_path: Path, target_dir: Path) -> None:
     print(f"Extracting to {target_dir}...")
     target_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive_path) as archive:
-        # v15.0 has files at the root of the zip
         archive.extractall(target_dir)
     print("Extraction complete.")
 
@@ -96,6 +121,12 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="dlss5_v15-") as workspace:
         archive = download(args.url, Path(workspace) / "release.zip")
+        
+        # Verify SHA-256 hash before extraction
+        if not verify_hash(archive, RELEASE_SHA256):
+            print("ERROR: Downloaded file failed integrity check. Aborting installation.")
+            sys.exit(1)
+        
         extract(archive, RUNTIME_TARGET)
 
     # Verify installation
