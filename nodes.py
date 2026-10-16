@@ -1,4 +1,4 @@
-"""ComfyUI Nodes for DLSS 5 Visual Enhancer v15.0 - RTX Image & Video File (Full Options)"""
+"""ComfyUI Nodes for DLSS 5 Visual Enhancer v15.0 - RTX Image & Video File (Secure)"""
 import subprocess
 import tempfile
 import torch
@@ -22,6 +22,72 @@ STYLE_MAP = {
 def natural_sort_key(s):
     """Helper to sort filenames naturally (frame_1, frame_2, frame_10)."""
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
+
+def is_safe_path(path_str: str, base_dir: Path) -> bool:
+    """Check if a path is safe (no traversal, no absolute, no UNC)."""
+    if not path_str:
+        return True
+    
+    # Reject absolute paths, drive letters, and UNC paths
+    if path_str.startswith('/') or path_str.startswith('\\') or path_str.startswith('\\\\') or len(path_str) > 1 and path_str[1] == ':':
+        return False
+    
+    # Reject path traversal
+    if '..' in path_str.split('/') or '..' in path_str.split('\\'):
+        return False
+    
+    # Resolve and check it's within base_dir
+    try:
+        resolved = (base_dir / path_str).resolve()
+        return str(resolved).startswith(str(base_dir.resolve()))
+    except:
+        return False
+
+def validate_video_path(video_path: str) -> Path:
+    """Validate video path is within ComfyUI input folder."""
+    path_str = video_path.strip().strip('"')
+    if not path_str:
+        raise Exception("Video path cannot be empty")
+    
+    # Reject absolute paths, drive letters, and UNC paths
+    if path_str.startswith('/') or path_str.startswith('\\') or path_str.startswith('\\\\') or len(path_str) > 1 and path_str[1] == ':':
+        raise Exception("Video path must be relative to ComfyUI input folder. Absolute paths, drive letters, and UNC paths are not allowed for security.")
+    
+    # Reject path traversal
+    if '..' in path_str.split('/') or '..' in path_str.split('\\'):
+        raise Exception("Video path cannot contain '..' (path traversal)")
+    
+    # Check it's within ComfyUI input folder
+    input_dir = Path(folder_paths.get_input_directory())
+    full_path = (input_dir / path_str).resolve()
+    
+    if not str(full_path).startswith(str(input_dir.resolve())):
+        raise Exception("Video path must be within ComfyUI input folder")
+    
+    if not full_path.is_file():
+        raise Exception(f"Video file not found: {full_path}")
+    
+    return full_path
+
+def validate_output_path(output_directory: str, filename_prefix: str) -> Path:
+    """Validate and construct safe output path within ComfyUI output folder."""
+    output_dir = Path(folder_paths.get_output_directory())
+    
+    # Validate output_directory if provided
+    if output_directory.strip():
+        dir_str = output_directory.strip().strip('"')
+        if not is_safe_path(dir_str, output_dir):
+            raise Exception("output_directory must be relative to ComfyUI output folder. Absolute paths, drive letters, UNC paths, and '..' are not allowed.")
+        output_dir = (output_dir / dir_str).resolve()
+    
+    # Validate filename_prefix
+    if '..' in filename_prefix or filename_prefix.startswith('/') or filename_prefix.startswith('\\') or filename_prefix.startswith('\\\\') or len(filename_prefix) > 1 and filename_prefix[1] == ':':
+        raise Exception("filename_prefix cannot contain path separators, drive letters, or '..'")
+    
+    # Create directory if needed
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    return output_dir
 
 class DLSS5_RTX_Enhance_v15:
     """Neural Rendering + RTX Upscaling for Images. 
@@ -102,7 +168,7 @@ class DLSS5_Video_File_Enhance_v15:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "video_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Absolute path to the source video file"}),
+                "video_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Relative path to video file within ComfyUI input folder"}),
                 "style": (["Default", "Natural", "Cinematic"], {"default": "Default"}),
                 "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "scale": ("FLOAT", {"default": 1.0, "min": 1.0, "max": 4.0, "step": 0.5}),
@@ -110,7 +176,7 @@ class DLSS5_Video_File_Enhance_v15:
                 "container": (["MKV", "MP4", "MOV"], {"default": "MKV"}),
                 "quality": (["Auto", "Good", "Best", "Max"], {"default": "Auto"}),
                 "filename_prefix": ("STRING", {"default": "DLSS5", "multiline": False}),
-                "output_directory": ("STRING", {"default": "", "multiline": False, "tooltip": "Empty writes to ComfyUI output directory"}),
+                "output_directory": ("STRING", {"default": "", "multiline": False, "tooltip": "Relative path within ComfyUI output directory"}),
                 "max_frames": ("INT", {"default": 0, "min": 0, "max": 1000000, "step": 1, "tooltip": "0 renders everything, any other value renders a preview"}),
                 "copy_audio": ("BOOLEAN", {"default": True}),
             }
@@ -126,19 +192,11 @@ class DLSS5_Video_File_Enhance_v15:
         cli_path = find_cli()
         cli_style = STYLE_MAP.get(style, "0")
         
-        input_path = Path(video_path.strip().strip('"'))
-        if not input_path.is_file():
-            raise Exception(f"Video file not found: {input_path}")
+        # Validate and get input path
+        input_path = validate_video_path(video_path)
 
-        # Determine output path
-        if output_directory.strip():
-            out_dir = Path(output_directory.strip().strip('"'))
-            if not out_dir.is_absolute():
-                out_dir = Path(folder_paths.get_output_directory()) / out_dir
-        else:
-            out_dir = Path(folder_paths.get_output_directory())
-        
-        out_dir.mkdir(parents=True, exist_ok=True)
+        # Validate and get output directory
+        out_dir = validate_output_path(output_directory, filename_prefix)
         
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         container_ext = container.lower()
@@ -212,8 +270,8 @@ class DLSS5_Video_File_Enhance_v15:
             shutil.move(str(current_path), str(final_output_path))
             print(f"[Video File] Saved to: {final_output_path}")
 
-            # Estimate frame count (simplified - CLI output or ffprobe would be more accurate)
-            frame_count = max_frames if max_frames > 0 else 0  # 0 means unknown/all frames
+            # Estimate frame count
+            frame_count = max_frames if max_frames > 0 else 0
 
         return (str(final_output_path), frame_count)
 
