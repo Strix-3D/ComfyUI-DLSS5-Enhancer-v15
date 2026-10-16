@@ -74,10 +74,10 @@ Once the installation is complete, restart ComfyUI. The nodes will now appear in
 
 This pack includes two highly optimized nodes:
 
-### 1. DLSS 5 RTX Enhance (Image)
+### 1. DLSS5 Enhance (Image)
 Takes an `IMAGE` batch, applies Neural Rendering, and optionally upscales it. Outputs an `IMAGE` batch.
 
-### 2. DLSS5 Enhance Video File (v15)
+### 2. DLSS5 Enhance (Video)
 Takes a file path string, processes the video natively via the CLI, and saves the result to your output directory. Outputs the new file path string (`output_path`) and the frame count (`frames`).
 
 ### Shared Controls
@@ -125,14 +125,14 @@ Because the DLSS5 nodes focus purely on AI reconstruction and upscaling, it is h
 
 <img width="1255" height="883" alt="dlss5_example" src="https://github.com/user-attachments/assets/c38672f6-a992-4598-81cd-274112ee62c6" />
 
-`Load Image` ➔ **`DLSS 5 RTX Enhance (Image)`** ➔ `Color Correction / Sharpening` ➔ `Save Image`
+`Load Image` ➔ **`DLSS5 Enhance (Image)`** ➔ `Color Correction / Sharpening` ➔ `Save Image`
 
 ### Video File Enhancement
 The video node accepts a relative file path and outputs a new file path. To preview the result and preserve audio, feed the output path into a `Load Video (Path)` node, and connect both the `IMAGE` and `audio` outputs to `Video Combine`.
 
 <img width="1428" height="740" alt="video_workflow" src="https://github.com/user-attachments/assets/7aced349-684f-47e1-96ef-ddde212071cd" />
 
-`DLSS5 Enhance Video File (v15)` ➔ *(output_path)* ➔ `Load Video (Path)` ➔ *(IMAGE & audio)* ➔ `Video Combine`
+`DLSS5 Enhance (Video)` ➔ *(output_path)* ➔ `Load Video (Path)` ➔ *(IMAGE & audio)* ➔ `Video Combine`
 
 ---
 
