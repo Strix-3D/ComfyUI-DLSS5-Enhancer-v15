@@ -65,7 +65,7 @@ This pack includes two highly optimized nodes:
 Takes an `IMAGE` batch, applies Neural Rendering, and optionally upscales it. Outputs an `IMAGE` batch.
 
 ### 2. DLSS5 Enhance Video File (v15)
-Takes a **file path string**, processes the video natively via the CLI, and saves the result to your output directory. Outputs the new **file path string** and the **frame count**.
+Takes a file path string, processes the video natively via the CLI, and saves the result to your output directory. Outputs the new file path string and the frame count.
 
 ### Shared Controls
 
@@ -79,13 +79,12 @@ Takes a **file path string**, processes the video natively via the CLI, and save
 
 | Widget | Options / Range | Effect |
 | --- | --- | --- |
-| **video_path** | STRING | Absolute path to the source video file (e.g., `C:\Videos\clip.mp4`). |
+| **video_path** | STRING | Relative path to video file within ComfyUI input folder (e.g., `my_video.mp4`). |
 | **codec** | HEVC, H264, AV1, ProRes Proxy | The video encoder to use. **H264** is recommended for maximum compatibility. |
 | **container** | MKV, MP4, MOV | The output file container format. |
 | **quality** | Auto, Good, Best, Max | Encoding quality/bitrate. |
 | **filename_prefix** | STRING | Prefix for the output filename (a timestamp is automatically appended). |
-| **output_directory** | STRING | Where to save the file. Leave blank to use the default ComfyUI `output` folder. |
-| **max_frames** | INT (Default: 0) | **0** renders the entire video. Any other number renders a quick preview of that many frames. |
+| **output_directory** | STRING | Relative subfolder path within ComfyUI output directory. Leave blank to use the default output folder. |
 | **copy_audio** | BOOLEAN | Whether to mux the original audio into the output file. |
 
 ---
@@ -109,16 +108,16 @@ The defaults below are starting points based on how the v15.0 native runtime beh
 ## Example Workflows
 
 ### Image Enhancement
-<img width="1255" height="883" alt="dlss5_example" src="https://github.com/user-attachments/assets/c38672f6-a992-4598-81cd-274112ee62c6" />
-
 Because the DLSS5 nodes focus purely on AI reconstruction and upscaling, it is highly recommended to use standard ComfyUI nodes for post-processing.
+
+<img width="1255" height="883" alt="dlss5_example" src="https://github.com/user-attachments/assets/c38672f6-a992-4598-81cd-274112ee62c6" />
 
 `Load Image` ➔ **`DLSS 5 RTX Enhance (Image)`** ➔ `Color Correction / Sharpening` ➔ `Save Image`
 
 ### Video File Enhancement
 The video node accepts a file path and outputs a file path. To preview the result inside ComfyUI, feed the output path into a "Load Video (Path)" node.
 
-`Load Video (Path)`  **`DLSS5 Enhance Video File (v15)`** ➔ *(output_path)* ➔ `Load Video (Path)` ➔ `VHS Video Combine`
+`Load Video (Path)` ➔ **`DLSS5 Enhance Video File (v15)`** ➔ *(output_path)* ➔ `Load Video (Path)` ➔ `VHS Video Combine`
 
 ---
 
