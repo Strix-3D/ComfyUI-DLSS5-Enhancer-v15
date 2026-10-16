@@ -36,12 +36,20 @@ This pack acts as a bridge between ComfyUI and the native DLSS 5 Visual Enhancer
 ### Step 1: Install the Node Pack
 Clone this repository into your `ComfyUI/custom_nodes/` folder:
 
-`git clone https://github.com/Strix-3D/ComfyUI-DLSS5-Enhancer-v15.git`
+Open a PowerShell window in your ComfyUI/custom_nodes/ folder and run:
+
+```cmd
+git clone https://github.com/Strix-3D/ComfyUI-DLSS5-Enhancer-v15.git
+```
 
 *(Alternatively, if published to ComfyUI Manager, search for `DLSS5-Enhancer-v15` and click Install).*
 
-**Important for Manual Installations:** If you cloned the repository manually (rather than using ComfyUI Manager), you must install the Python dependencies. Open a PowerShell window in your main ComfyUI folder and run:
-`.\python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-DLSS5-Enhancer-v15\requirements.txt`
+**Important for Manual Installations:** If you cloned the repository manually (rather than using ComfyUI Manager), you must install the Python dependencies. 
+
+Open a PowerShell window in your main ComfyUI folder (the one containing python_embeded) and run:
+```cmd
+.\python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-DLSS5-Enhancer-v15\requirements.txt
+```
 
 ### Step 2: Download the Runtime & Accept the License
 **This node pack does not include the proprietary NVIDIA binaries.** You must download them using the included installer script.
@@ -49,11 +57,13 @@ Clone this repository into your `ComfyUI/custom_nodes/` folder:
 1. Open a PowerShell window in your main ComfyUI folder (the one containing `python_embeded`).
 2. Run the following command:
 
-   `.\python_embeded\python.exe ComfyUI\custom_nodes\ComfyUI-DLSS5-Enhancer-v15\install.py`
+   ```cmd
+   .\python_embeded\python.exe ComfyUI\custom_nodes\ComfyUI-DLSS5-Enhancer-v15\install.py
+   ```
 
-3. **Read the License Notice:** The script will display a list of third-party components (NVIDIA, FFmpeg, mpv, etc.) and their respective licenses.
-4. **Accept the Terms:** Type `y` and press **Enter** to confirm you accept the terms and wish to proceed.
-5. Wait for the **~700MB** runtime to download and extract into the `runtime/` folder.
+4. **Read the License Notice:** The script will display a list of third-party components (NVIDIA, FFmpeg, mpv, etc.) and their respective licenses.
+5. **Accept the Terms:** Type `y` and press **Enter** to confirm you accept the terms and wish to proceed.
+6. Wait for the **~700MB** runtime to download and extract into the `runtime/` folder.
 
 ### Step 3: Restart ComfyUI
 Once the installation is complete, restart ComfyUI. The nodes will now appear in your menu under the `DLSS5_v15` category.
