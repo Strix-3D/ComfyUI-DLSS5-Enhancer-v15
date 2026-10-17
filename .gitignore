@@ -1,0 +1,15 @@
+   # Python cache and virtual environments
+   __pycache__/
+   *.py[cod]
+   *$py.class
+   .ruff_cache/
+   
+   # Node-specific (NEVER commit proprietary binaries or local config)
+   runtime/
+   config.json
+   
+   # IDE and OS files
+   .vscode/
+   .idea/
+   *.swp
+   *.swo
