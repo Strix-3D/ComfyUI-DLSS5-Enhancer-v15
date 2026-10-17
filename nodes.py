@@ -20,34 +20,37 @@ STYLE_MAP = {
     "Cinematic": "2"
 }
 
+
 def natural_sort_key(s):
     """Helper to sort filenames naturally (frame_1, frame_2, frame_10)."""
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
+
 
 def is_safe_path(path_str: str, base_dir: Path) -> bool:
     """Check if a path is safe (no traversal, no absolute, no UNC)."""
     if not path_str:
         return True
-    if path_str.startswith('/') or path_str.startswith('\\') or path_str.startswith('\\\\') or (len(path_str) > 1 and path_str[1] == ':'):
+    if path_str.startswith('/') or path_str.startswith('\\') or (len(path_str) > 1 and path_str[1] == ':'):
         return False
     if '..' in path_str.split('/') or '..' in path_str.split('\\'):
         return False
     try:
         resolved = (base_dir / path_str).resolve()
         return str(resolved).startswith(str(base_dir.resolve()))
-    except:
+    except Exception:
         return False
+
 
 def validate_video_path(video_path: str) -> Path:
     """Validate video path is within ComfyUI input folder."""
     path_str = video_path.strip().strip('"')
     if not path_str:
         raise Exception("Video path cannot be empty")
-    if path_str.startswith('/') or path_str.startswith('\\') or path_str.startswith('\\\\') or (len(path_str) > 1 and path_str[1] == ':'):
+    if path_str.startswith('/') or path_str.startswith('\\') or (len(path_str) > 1 and path_str[1] == ':'):
         raise Exception("Video path must be relative to ComfyUI input folder.")
     if '..' in path_str.split('/') or '..' in path_str.split('\\'):
         raise Exception("Video path cannot contain '..'")
-    
+
     input_dir = Path(folder_paths.get_input_directory())
     full_path = (input_dir / path_str).resolve()
     if not str(full_path).startswith(str(input_dir.resolve())):
@@ -55,6 +58,7 @@ def validate_video_path(video_path: str) -> Path:
     if not full_path.is_file():
         raise Exception(f"Video file not found: {full_path}")
     return full_path
+
 
 def validate_output_path(output_directory: str, filename_prefix: str) -> Path:
     """Validate and construct safe output path within ComfyUI output folder."""
@@ -64,10 +68,11 @@ def validate_output_path(output_directory: str, filename_prefix: str) -> Path:
         if not is_safe_path(dir_str, output_dir):
             raise Exception("output_directory must be relative to ComfyUI output folder.")
         output_dir = (output_dir / dir_str).resolve()
-    if '..' in filename_prefix or filename_prefix.startswith('/') or filename_prefix.startswith('\\') or filename_prefix.startswith('\\\\') or (len(filename_prefix) > 1 and filename_prefix[1] == ':'):
+    if '..' in filename_prefix or filename_prefix.startswith('/') or filename_prefix.startswith('\\') or (len(filename_prefix) > 1 and filename_prefix[1] == ':'):
         raise Exception("filename_prefix cannot contain path separators, drive letters, or '..'")
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
+
 
 class DLSS5_RTX_Enhance_v15:
     @classmethod
@@ -80,6 +85,7 @@ class DLSS5_RTX_Enhance_v15:
                 "scale": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 4.0, "step": 0.5}),
             }
         }
+
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
     CATEGORY = "DLSS5_v15"
@@ -142,10 +148,10 @@ class DLSS5_Video_File_Enhance_v15:
     def process_video_file(self, video_path, style, strength, scale, codec, container, quality, target_fps, filename_prefix, output_directory, copy_audio):
         cli_path = find_cli()
         cli_style = STYLE_MAP.get(style, "0")
-        
+
         input_path = validate_video_path(video_path)
         out_dir = validate_output_path(output_directory, filename_prefix)
-        
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         container_ext = container.lower()
         final_filename = f"{filename_prefix}_{timestamp}.{container_ext}"
@@ -170,7 +176,7 @@ class DLSS5_Video_File_Enhance_v15:
                 raise Exception(f"DLSS5 Video Render failed: {result.stderr}")
 
             current_path = render_path
-            
+
             # Step 2: RTX Upscale (Optional)
             if scale > 1.0:
                 print(f"[Video File] Upscaling...")
@@ -184,32 +190,29 @@ class DLSS5_Video_File_Enhance_v15:
             if target_fps > 0:
                 print(f"[Video File] Interpolating to {target_fps} FPS via DLSS Frame Generation...")
                 interpolate_path = tmpdir / f"interpolated_out.{container_ext}"
-                
                 cmd_interpolate = [
                     str(cli_path), "interpolate", str(current_path),
                     "--fps", str(target_fps),
                     "-o", str(interpolate_path),
                     "--quiet", "--json"
                 ]
-                
                 result = subprocess.run(cmd_interpolate, capture_output=True, text=True)
                 if result.returncode != 0:
                     raise Exception(f"DLSS5 Video Interpolation failed: {result.stderr}")
-                
                 current_path = interpolate_path
                 print(f"[Video File] Interpolation complete.")
 
             # Step 4: Audio Preservation Fix (Uses imageio-ffmpeg)
             if copy_audio:
                 print(f"[Video File] Preserving audio from source...")
-                
+
                 # 1. Try to get ffmpeg from imageio-ffmpeg (bundled)
                 ffmpeg_exe = None
                 try:
                     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
                 except Exception:
                     pass
-                
+
                 # 2. Fallback to system PATH if imageio-ffmpeg fails
                 if not ffmpeg_exe:
                     ffmpeg_exe = shutil.which("ffmpeg")
@@ -226,7 +229,7 @@ class DLSS5_Video_File_Enhance_v15:
                         "-c:v", "copy",               # Copy video stream exactly as is
                         "-c:a", "copy",               # Copy audio stream exactly as is
                         "-map", "0:v:0",              # Map video from Input 0
-                        "-map", "1:a:0?",             # Map audio from Input 1 (the '?' makes it optional if source is silent)
+                        "-map", "1:a:0?",             # Map audio from Input 1 (optional if source is silent)
                         str(final_output_path)
                     ]
                     try:
