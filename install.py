@@ -73,7 +73,6 @@ def verify_hash(archive_path: Path, expected_hash: str) -> bool:
     if not expected_hash or expected_hash == "YOUR_SHA256_HASH_HERE":
         print("WARNING: No SHA-256 hash configured. Skipping verification.")
         return False
-    
     print("Verifying file integrity...")
     actual_hash = calculate_sha256(archive_path)
     if actual_hash.lower() != expected_hash.lower():
@@ -94,6 +93,13 @@ def extract(archive_path: Path, target_dir: Path) -> None:
 def confirm(auto_yes: bool) -> None:
     if auto_yes:
         return
+    if not sys.stdin.isatty():
+        # Launched by ComfyUI Manager or another non-interactive tool
+        print("\nNon-interactive environment detected (e.g. ComfyUI Manager).")
+        print("Automatic download skipped so the license can be reviewed properly.")
+        print("To accept the terms and install the runtime, run this script manually once:")
+        print("  .\\python_embeded\\python.exe ComfyUI\\custom_nodes\\ComfyUI-DLSS5-Enhancer-v15\\install.py")
+        sys.exit(0)
     answer = input("Do you accept the terms and wish to proceed? [y/N] ").strip().lower()
     if answer not in {"y", "yes"}:
         sys.exit("Installation aborted.")
@@ -102,10 +108,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Install DLSS 5 Visual Enhancer v16.5")
     parser.add_argument("--runtime-dir", type=Path, help="Use an existing installation directory.")
     parser.add_argument("--url", default=RELEASE_URL, help="Release archive URL.")
-    parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt (for ComfyUI Manager).")
+    parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt.")
     args = parser.parse_args()
-
-    print(NOTICE)
 
     if args.runtime_dir:
         cli_path = args.runtime_dir / "VE_CLI.exe"
@@ -116,19 +120,24 @@ def main() -> None:
         print(f"Registered runtime at {args.runtime_dir}")
         return
 
+    # If the runtime is already installed, do nothing (fixes Manager update hangs)
+    if (RUNTIME_TARGET / "VE_CLI.exe").is_file():
+        print(f"[DLSS5] Runtime already installed at {RUNTIME_TARGET}. Nothing to do.")
+        write_config(RUNTIME_TARGET)
+        return
+
+    print(NOTICE)
     confirm(args.yes)
 
     with tempfile.TemporaryDirectory(prefix="dlss5_v16-") as workspace:
         archive = download(args.url, Path(workspace) / "release.zip")
-        
-        # Verify SHA-256 hash before extraction
+
         if not verify_hash(archive, RELEASE_SHA256):
             print("ERROR: Downloaded file failed integrity check. Aborting installation.")
             sys.exit(1)
-        
+
         extract(archive, RUNTIME_TARGET)
 
-    # Verify installation
     cli_path = RUNTIME_TARGET / "VE_CLI.exe"
     if not cli_path.is_file():
         print("Error: Installation failed. VE_CLI.exe not found.")
