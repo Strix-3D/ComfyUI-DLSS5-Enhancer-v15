@@ -1,0 +1,6 @@
+  runtime/
+  config.json
+  __pycache__/
+  .ruff_cache/
+  .git/
+  *.pyc
