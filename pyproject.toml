@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-dlss5-enhancer-v15"
+description = "NVIDIA DLSS 5 Neural Rendering and RTX Upscaling for ComfyUI."
+version = "1.0.0"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+dependencies = ["imageio-ffmpeg"]
+
+[project.urls]
+Repository = "https://github.com/Strix-3D/ComfyUI-DLSS5-Enhancer-v15"
+
+[tool.comfy]
+Publisher = "Strix-3D"
+DisplayName = "ComfyUI-DLSS5-Enhancer-v15"
