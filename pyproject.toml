@@ -10,5 +10,5 @@ dependencies = ["imageio-ffmpeg"]
 Repository = "https://github.com/Strix-3D/ComfyUI-DLSS5-Enhancer-v15"
 
 [tool.comfy]
-Publisher = "Strix-3D"
+PublisherId = "strix3d"
 DisplayName = "ComfyUI-DLSS5-Enhancer-v15"
