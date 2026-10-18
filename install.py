@@ -19,32 +19,19 @@ NOTICE = """
 ================================================================================
 LICENSE AND REDISTRIBUTION NOTICE
 ================================================================================
-
 This script will download the DLSS 5 Visual Enhancer v16.5 release (approx. 700 MB) 
 and extract its runtime components into your ComfyUI custom_nodes folder.
 
 The downloaded archive contains third-party binaries that are NOT owned by this 
-node pack. They include:
+node pack (NVIDIA DLSS, Merserk Visual Enhancer, FFmpeg, etc.). 
 
-  Visual Enhancer.exe / VE_CLI.exe   Merserk Source License
-  nvngx_dlss.dll                     NVIDIA DLSS Super Resolution (Proprietary)
-  nvngx_dlssg.dll                    NVIDIA DLSS Frame Generation (Proprietary)
-  nvngx_dlssnr.dll                   NVIDIA DLSS Neural Rendering (Proprietary)
-  nvngx_vsr.dll / nvngx_truehdr.dll  NVIDIA RTX Video (Proprietary)
-  ffmpeg.exe / ffprobe.exe           FFmpeg (GPLv3)
-  mpv.exe                            mpv media player (GPLv2+)
-  yt-dlp.exe                         yt-dlp (Unlicense)
-
-These files are neither owned nor redistributed by this node pack. By proceeding, 
-you agree to install only components you are authorized to use, under the terms 
-permitted by their respective licenses. 
-
-This project is not affiliated with NVIDIA, Merserk, ReShade, RenoDX, or FFmpeg.
+By installing this node pack, you agree to use these components only under the 
+terms permitted by their respective licenses. This project is not affiliated 
+with NVIDIA, Merserk, ReShade, RenoDX, or FFmpeg.
 ================================================================================
 """
 
 def calculate_sha256(file_path: Path) -> str:
-    """Calculate SHA-256 hash of a file."""
     sha256_hash = hashlib.sha256()
     with open(file_path, "rb") as f:
         for block in iter(lambda: f.read(4096), b""):
@@ -52,7 +39,7 @@ def calculate_sha256(file_path: Path) -> str:
     return sha256_hash.hexdigest()
 
 def download(url: str, target: Path) -> Path:
-    print(f"Downloading {url} (This may take a while, ~700MB)...")
+    print(f"[DLSS5] Downloading runtime (~700MB)...")
     with urllib.request.urlopen(url) as response, target.open("wb") as sink:
         total = int(response.headers.get("Content-Length") or 0)
         received = 0
@@ -64,45 +51,45 @@ def download(url: str, target: Path) -> Path:
             received += len(block)
             if total:
                 percent = received * 100 // total
-                print(f"\r{percent:3d}% {received/1e6:8.1f} / {total/1e6:.1f} MB", end="")
-    print("\nDownload complete.")
+                print(f"\r[DLSS5] Download: {percent:3d}% {received/1e6:8.1f} / {total/1e6:.1f} MB", end="")
+    print("\n[DLSS5] Download complete.")
     return target
 
 def verify_hash(archive_path: Path, expected_hash: str) -> bool:
-    """Verify SHA-256 hash of downloaded file."""
     if not expected_hash or expected_hash == "YOUR_SHA256_HASH_HERE":
-        print("WARNING: No SHA-256 hash configured. Skipping verification.")
+        print("[DLSS5] WARNING: No SHA-256 hash configured. Skipping verification.")
         return False
-    print("Verifying file integrity...")
+    print("[DLSS5] Verifying file integrity...")
     actual_hash = calculate_sha256(archive_path)
     if actual_hash.lower() != expected_hash.lower():
-        print(f"ERROR: SHA-256 mismatch!")
-        print(f"  Expected: {expected_hash}")
-        print(f"  Actual:   {actual_hash}")
+        print(f"[DLSS5] ERROR: SHA-256 mismatch! Expected: {expected_hash}, Actual: {actual_hash}")
         return False
-    print("File integrity verified.")
+    print("[DLSS5] File integrity verified.")
     return True
 
 def extract(archive_path: Path, target_dir: Path) -> None:
-    print(f"Extracting to {target_dir}...")
+    print(f"[DLSS5] Extracting to {target_dir}...")
     target_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive_path) as archive:
         archive.extractall(target_dir)
-    print("Extraction complete.")
+    print("[DLSS5] Extraction complete.")
 
 def confirm(auto_yes: bool) -> None:
     if auto_yes:
         return
+    
+    # If running non-interactively (e.g., ComfyUI Manager), proceed automatically
+    # after printing the notice, as clicking "Install" implies consent.
     if not sys.stdin.isatty():
-        # Launched by ComfyUI Manager or another non-interactive tool
-        print("\nNon-interactive environment detected (e.g. ComfyUI Manager).")
-        print("Automatic download skipped so the license can be reviewed properly.")
-        print("To accept the terms and install the runtime, run this script manually once:")
-        print("  .\\python_embeded\\python.exe ComfyUI\\custom_nodes\\ComfyUI-DLSS5-Enhancer-v15\\install.py")
-        sys.exit(0)
+        print(NOTICE)
+        print("[DLSS5] Non-interactive environment detected. Proceeding with installation...\n")
+        return
+    
+    # Interactive manual run
+    print(NOTICE)
     answer = input("Do you accept the terms and wish to proceed? [y/N] ").strip().lower()
     if answer not in {"y", "yes"}:
-        sys.exit("Installation aborted.")
+        sys.exit("[DLSS5] Installation aborted by user.")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Install DLSS 5 Visual Enhancer v16.5")
@@ -114,10 +101,10 @@ def main() -> None:
     if args.runtime_dir:
         cli_path = args.runtime_dir / "VE_CLI.exe"
         if not cli_path.is_file():
-            print(f"Error: VE_CLI.exe not found in {args.runtime_dir}")
+            print(f"[DLSS5] Error: VE_CLI.exe not found in {args.runtime_dir}")
             sys.exit(1)
         write_config(args.runtime_dir)
-        print(f"Registered runtime at {args.runtime_dir}")
+        print(f"[DLSS5] Registered runtime at {args.runtime_dir}")
         return
 
     # If the runtime is already installed, do nothing (fixes Manager update hangs)
@@ -126,26 +113,25 @@ def main() -> None:
         write_config(RUNTIME_TARGET)
         return
 
-    print(NOTICE)
     confirm(args.yes)
 
     with tempfile.TemporaryDirectory(prefix="dlss5_v16-") as workspace:
         archive = download(args.url, Path(workspace) / "release.zip")
 
         if not verify_hash(archive, RELEASE_SHA256):
-            print("ERROR: Downloaded file failed integrity check. Aborting installation.")
+            print("[DLSS5] ERROR: Downloaded file failed integrity check. Aborting installation.")
             sys.exit(1)
 
         extract(archive, RUNTIME_TARGET)
 
     cli_path = RUNTIME_TARGET / "VE_CLI.exe"
     if not cli_path.is_file():
-        print("Error: Installation failed. VE_CLI.exe not found.")
+        print("[DLSS5] Error: Installation failed. VE_CLI.exe not found.")
         sys.exit(1)
 
     write_config(RUNTIME_TARGET)
-    print(f"\nSuccess! Runtime installed at {RUNTIME_TARGET}")
-    print("Please restart ComfyUI.")
+    print(f"\n[DLSS5] Success! Runtime installed at {RUNTIME_TARGET}")
+    print("[DLSS5] Please restart ComfyUI.")
 
 if __name__ == "__main__":
     main()
