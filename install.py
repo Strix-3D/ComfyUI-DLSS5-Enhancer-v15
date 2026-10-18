@@ -74,28 +74,16 @@ def extract(archive_path: Path, target_dir: Path) -> None:
         archive.extractall(target_dir)
     print("[DLSS5] Extraction complete.")
 
-def confirm(auto_yes: bool) -> None:
-    if auto_yes:
-        return
-    
-    # If running non-interactively (e.g., ComfyUI Manager), proceed automatically
-    # after printing the notice, as clicking "Install" implies consent.
-    if not sys.stdin.isatty():
-        print(NOTICE)
-        print("[DLSS5] Non-interactive environment detected. Proceeding with installation...\n")
-        return
-    
-    # Interactive manual run
+def confirm() -> None:
+    # Always print the notice for transparency. 
+    # In ComfyUI, clicking "Install" implies consent, so we never pause for a prompt.
     print(NOTICE)
-    answer = input("Do you accept the terms and wish to proceed? [y/N] ").strip().lower()
-    if answer not in {"y", "yes"}:
-        sys.exit("[DLSS5] Installation aborted by user.")
+    print("[DLSS5] Proceeding with installation...\n")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Install DLSS 5 Visual Enhancer v16.5")
     parser.add_argument("--runtime-dir", type=Path, help="Use an existing installation directory.")
     parser.add_argument("--url", default=RELEASE_URL, help="Release archive URL.")
-    parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt.")
     args = parser.parse_args()
 
     if args.runtime_dir:
@@ -113,7 +101,7 @@ def main() -> None:
         write_config(RUNTIME_TARGET)
         return
 
-    confirm(args.yes)
+    confirm()
 
     with tempfile.TemporaryDirectory(prefix="dlss5_v16-") as workspace:
         archive = download(args.url, Path(workspace) / "release.zip")
