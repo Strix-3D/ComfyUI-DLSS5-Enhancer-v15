@@ -1,4 +1,4 @@
-"""Fetch and register the DLSS 5 Visual Enhancer v16.5 runtime."""
+"""Fetch and register the DLSS 5 Visual Enhancer v17.5 runtime."""
 import argparse
 import hashlib
 import sys
@@ -10,16 +10,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paths import PACKAGE_ROOT, write_config
 
-# v16.5 Release URL and SHA-256 hash
-RELEASE_URL = "https://github.com/Merserk/dlss5-visual-enhancer/releases/download/v16.5/Visual.Enhancer.v16.5.zip"
-RELEASE_SHA256 = "23539866bae168613e89f9bfa426f7a60489a199b23409061b6ae4179a793e37"
+# v17.5 Release URL and SHA-256 hash
+RELEASE_URL = "https://github.com/Merserk/dlss5-visual-enhancer/releases/download/v17.5/Visual.Enhancer.v17.5.zip"
+RELEASE_SHA256 = "f78b6ecb3c43a4435db4684851551c266d11fa1b18a465ddabd3d676b07a4c65"
 RUNTIME_TARGET = PACKAGE_ROOT / "runtime"
 
 NOTICE = """
 ================================================================================
 LICENSE AND REDISTRIBUTION NOTICE
 ================================================================================
-This script will download the DLSS 5 Visual Enhancer v16.5 release (approx. 700 MB) 
+This script will download the DLSS 5 Visual Enhancer v17.5 release (approx. 700 MB) 
 and extract its runtime components into your ComfyUI custom_nodes folder.
 
 The downloaded archive contains third-party binaries that are NOT owned by this 
@@ -74,16 +74,28 @@ def extract(archive_path: Path, target_dir: Path) -> None:
         archive.extractall(target_dir)
     print("[DLSS5] Extraction complete.")
 
-def confirm() -> None:
-    # Always print the notice for transparency. 
-    # In ComfyUI, clicking "Install" implies consent, so we never pause for a prompt.
+def confirm(auto_yes: bool) -> None:
+    if auto_yes:
+        return
+    
+    # If running non-interactively (e.g., ComfyUI Manager), proceed automatically
+    # after printing the notice, as clicking "Install" implies consent.
+    if not sys.stdin.isatty():
+        print(NOTICE)
+        print("[DLSS5] Non-interactive environment detected. Proceeding with installation...\n")
+        return
+    
+    # Interactive manual run
     print(NOTICE)
-    print("[DLSS5] Proceeding with installation...\n")
+    answer = input("Do you accept the terms and wish to proceed? [y/N] ").strip().lower()
+    if answer not in {"y", "yes"}:
+        sys.exit("[DLSS5] Installation aborted by user.")
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Install DLSS 5 Visual Enhancer v16.5")
+    parser = argparse.ArgumentParser(description="Install DLSS 5 Visual Enhancer v17.5")
     parser.add_argument("--runtime-dir", type=Path, help="Use an existing installation directory.")
     parser.add_argument("--url", default=RELEASE_URL, help="Release archive URL.")
+    parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt.")
     args = parser.parse_args()
 
     if args.runtime_dir:
@@ -101,9 +113,9 @@ def main() -> None:
         write_config(RUNTIME_TARGET)
         return
 
-    confirm()
+    confirm(args.yes)
 
-    with tempfile.TemporaryDirectory(prefix="dlss5_v16-") as workspace:
+    with tempfile.TemporaryDirectory(prefix="dlss5_v17-") as workspace:
         archive = download(args.url, Path(workspace) / "release.zip")
 
         if not verify_hash(archive, RELEASE_SHA256):
