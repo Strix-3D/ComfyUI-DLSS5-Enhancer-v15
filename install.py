@@ -15,6 +15,10 @@ RELEASE_URL = "https://github.com/Merserk/dlss5-visual-enhancer/releases/downloa
 RELEASE_SHA256 = "f78b6ecb3c43a4435db4684851551c266d11fa1b18a465ddabd3d676b07a4c65"
 RUNTIME_TARGET = PACKAGE_ROOT / "runtime"
 
+# Runtime Version Tracking
+CURRENT_RUNTIME_VERSION = "v17.5"
+VERSION_FILE = RUNTIME_TARGET / "VERSION.txt"
+
 NOTICE = """
 ================================================================================
 LICENSE AND REDISTRIBUTION NOTICE
@@ -74,28 +78,15 @@ def extract(archive_path: Path, target_dir: Path) -> None:
         archive.extractall(target_dir)
     print("[DLSS5] Extraction complete.")
 
-def confirm(auto_yes: bool) -> None:
-    if auto_yes:
-        return
-    
-    # If running non-interactively (e.g., ComfyUI Manager), proceed automatically
-    # after printing the notice, as clicking "Install" implies consent.
-    if not sys.stdin.isatty():
-        print(NOTICE)
-        print("[DLSS5] Non-interactive environment detected. Proceeding with installation...\n")
-        return
-    
-    # Interactive manual run
+def confirm() -> None:
+    # True implied consent: Print the notice and proceed automatically.
     print(NOTICE)
-    answer = input("Do you accept the terms and wish to proceed? [y/N] ").strip().lower()
-    if answer not in {"y", "yes"}:
-        sys.exit("[DLSS5] Installation aborted by user.")
+    print("[DLSS5] Proceeding with installation...\n")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Install DLSS 5 Visual Enhancer v17.5")
     parser.add_argument("--runtime-dir", type=Path, help="Use an existing installation directory.")
     parser.add_argument("--url", default=RELEASE_URL, help="Release archive URL.")
-    parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt.")
     args = parser.parse_args()
 
     if args.runtime_dir:
@@ -107,13 +98,21 @@ def main() -> None:
         print(f"[DLSS5] Registered runtime at {args.runtime_dir}")
         return
 
-    # If the runtime is already installed, do nothing (fixes Manager update hangs)
-    if (RUNTIME_TARGET / "VE_CLI.exe").is_file():
-        print(f"[DLSS5] Runtime already installed at {RUNTIME_TARGET}. Nothing to do.")
-        write_config(RUNTIME_TARGET)
-        return
+    # --- NEW VERSION CHECK LOGIC ---
+    # Check if the runtime is already installed and up-to-date
+    if VERSION_FILE.is_file():
+        installed_version = VERSION_FILE.read_text().strip()
+        if installed_version == CURRENT_RUNTIME_VERSION:
+            print(f"[DLSS5] Runtime {CURRENT_RUNTIME_VERSION} already installed. Nothing to do.")
+            write_config(RUNTIME_TARGET)
+            return
+        else:
+            print(f"[DLSS5] Updating runtime from {installed_version} to {CURRENT_RUNTIME_VERSION}...")
+    else:
+        print(f"[DLSS5] Installing new runtime {CURRENT_RUNTIME_VERSION}...")
+    # ---------------------------------
 
-    confirm(args.yes)
+    confirm()
 
     with tempfile.TemporaryDirectory(prefix="dlss5_v17-") as workspace:
         archive = download(args.url, Path(workspace) / "release.zip")
@@ -128,6 +127,10 @@ def main() -> None:
     if not cli_path.is_file():
         print("[DLSS5] Error: Installation failed. VE_CLI.exe not found.")
         sys.exit(1)
+
+    # Write the version file so we know it's up to date next time
+    VERSION_FILE.write_text(CURRENT_RUNTIME_VERSION)
+    print(f"[DLSS5] Version file updated to {CURRENT_RUNTIME_VERSION}.")
 
     write_config(RUNTIME_TARGET)
     print(f"\n[DLSS5] Success! Runtime installed at {RUNTIME_TARGET}")
