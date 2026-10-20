@@ -98,9 +98,9 @@ def main() -> None:
         print(f"[DLSS5] Registered runtime at {args.runtime_dir}")
         return
 
-    # --- NEW VERSION CHECK LOGIC ---
-    # Check if the runtime is already installed and up-to-date
+    # --- BULLETPROOF VERSION CHECK LOGIC ---
     if VERSION_FILE.is_file():
+        # Scenario 1: We know the exact version installed
         installed_version = VERSION_FILE.read_text().strip()
         if installed_version == CURRENT_RUNTIME_VERSION:
             print(f"[DLSS5] Runtime {CURRENT_RUNTIME_VERSION} already installed. Nothing to do.")
@@ -108,9 +108,15 @@ def main() -> None:
             return
         else:
             print(f"[DLSS5] Updating runtime from {installed_version} to {CURRENT_RUNTIME_VERSION}...")
+            
+    elif (RUNTIME_TARGET / "VE_CLI.exe").is_file():
+        # Scenario 2: Runtime exists, but no VERSION.txt (Legacy v16.5 installation)
+        print(f"[DLSS5] Legacy runtime detected. Upgrading to {CURRENT_RUNTIME_VERSION}...")
+        
     else:
+        # Scenario 3: Completely fresh installation
         print(f"[DLSS5] Installing new runtime {CURRENT_RUNTIME_VERSION}...")
-    # ---------------------------------
+    # ----------------------------------------
 
     confirm()
 
