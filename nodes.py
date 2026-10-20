@@ -1,4 +1,4 @@
-"""ComfyUI Nodes for DLSS 5 Visual Enhancer v16.5 - RTX Image & Video File (Secure + Audio Fix + Frame Gen)"""
+"""ComfyUI Nodes for DLSS 5 Visual Enhancer v17.5 - RTX Image & Video (Ray Reconstruction + Optical Flow + 16x Scale)"""
 import subprocess
 import tempfile
 import torch
@@ -20,17 +20,15 @@ STYLE_MAP = {
     "Cinematic": "2"
 }
 
-
 def natural_sort_key(s):
     """Helper to sort filenames naturally (frame_1, frame_2, frame_10)."""
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
-
 
 def is_safe_path(path_str: str, base_dir: Path) -> bool:
     """Check if a path is safe (no traversal, no absolute, no UNC)."""
     if not path_str:
         return True
-    if path_str.startswith('/') or path_str.startswith('\\') or (len(path_str) > 1 and path_str[1] == ':'):
+    if path_str.startswith('/') or path_str.startswith('\\') or path_str.startswith('\\\\') or (len(path_str) > 1 and path_str[1] == ':'):
         return False
     if '..' in path_str.split('/') or '..' in path_str.split('\\'):
         return False
@@ -40,13 +38,12 @@ def is_safe_path(path_str: str, base_dir: Path) -> bool:
     except Exception:
         return False
 
-
 def validate_video_path(video_path: str) -> Path:
     """Validate video path is within ComfyUI input folder."""
     path_str = video_path.strip().strip('"')
     if not path_str:
         raise Exception("Video path cannot be empty")
-    if path_str.startswith('/') or path_str.startswith('\\') or (len(path_str) > 1 and path_str[1] == ':'):
+    if path_str.startswith('/') or path_str.startswith('\\') or path_str.startswith('\\\\') or (len(path_str) > 1 and path_str[1] == ':'):
         raise Exception("Video path must be relative to ComfyUI input folder.")
     if '..' in path_str.split('/') or '..' in path_str.split('\\'):
         raise Exception("Video path cannot contain '..'")
@@ -59,7 +56,6 @@ def validate_video_path(video_path: str) -> Path:
         raise Exception(f"Video file not found: {full_path}")
     return full_path
 
-
 def validate_output_path(output_directory: str, filename_prefix: str) -> Path:
     """Validate and construct safe output path within ComfyUI output folder."""
     output_dir = Path(folder_paths.get_output_directory())
@@ -68,13 +64,13 @@ def validate_output_path(output_directory: str, filename_prefix: str) -> Path:
         if not is_safe_path(dir_str, output_dir):
             raise Exception("output_directory must be relative to ComfyUI output folder.")
         output_dir = (output_dir / dir_str).resolve()
-    if '..' in filename_prefix or filename_prefix.startswith('/') or filename_prefix.startswith('\\') or (len(filename_prefix) > 1 and filename_prefix[1] == ':'):
+    if '..' in filename_prefix or filename_prefix.startswith('/') or filename_prefix.startswith('\\') or filename_prefix.startswith('\\\\') or (len(filename_prefix) > 1 and filename_prefix[1] == ':'):
         raise Exception("filename_prefix cannot contain path separators, drive letters, or '..'")
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 
 
-class DLSS5_RTX_Enhance_v15:
+class DLSS5_RTX_Enhance_v17:
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -82,15 +78,16 @@ class DLSS5_RTX_Enhance_v15:
                 "images": ("IMAGE",),
                 "style": (["Default", "Natural", "Cinematic"], {"default": "Default"}),
                 "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
-                "scale": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 4.0, "step": 0.5}),
+                "scale": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 16.0, "step": 0.5, "tooltip": "Scale factor. Up to 16.0 (1600%) supported in v17.5+"}),
+                "ray_reconstruction": ("BOOLEAN", {"default": False, "tooltip": "Enable DLSS Ray Reconstruction at native resolution (1x) for high-precision color handling."}),
             }
         }
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "process"
-    CATEGORY = "DLSS5_v15"
+    CATEGORY = "DLSS5_v17"
 
-    def process(self, images, style, strength, scale):
+    def process(self, images, style, strength, scale, ray_reconstruction):
         cli_path = find_cli()
         output_images = []
         cli_style = STYLE_MAP.get(style, "0")
@@ -106,9 +103,17 @@ class DLSS5_RTX_Enhance_v15:
                 upscale_path = Path(tmpdir) / f"upscale_out{ext}"
                 img_pil.save(str(input_path))
 
-                cmd_render = [str(cli_path), "render", str(input_path), "-o", str(render_path), "--style", cli_style, "--strength", str(strength), "--format", fmt, "--gpu", "auto", "--quiet", "--json"]
+                # Step 1: Render or Reconstruct
+                if ray_reconstruction:
+                    # Use the dedicated 'reconstruct' command for Ray Reconstruction
+                    cmd_render = [str(cli_path), "reconstruct", str(input_path), "-o", str(render_path), "--format", fmt, "--gpu", "auto", "--quiet", "--json"]
+                else:
+                    # Use standard 'render' command
+                    cmd_render = [str(cli_path), "render", str(input_path), "-o", str(render_path), "--style", cli_style, "--strength", str(strength), "--format", fmt, "--gpu", "auto", "--quiet", "--json"]
+                
                 subprocess.run(cmd_render, capture_output=True, text=True, check=True)
 
+                # Step 2: Upscale (Optional)
                 final_path = render_path
                 if scale > 1.0:
                     cmd_upscale = [str(cli_path), "upscale", str(render_path), "-o", str(upscale_path), "--engine", "rtx", "--scale", str(scale), "--format", fmt, "--gpu", "auto", "--quiet", "--json"]
@@ -121,7 +126,7 @@ class DLSS5_RTX_Enhance_v15:
         return (torch.cat(output_images, dim=0),)
 
 
-class DLSS5_Video_File_Enhance_v15:
+class DLSS5_Video_File_Enhance_v17:
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -129,11 +134,13 @@ class DLSS5_Video_File_Enhance_v15:
                 "video_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Relative path to video file within ComfyUI input folder"}),
                 "style": (["Default", "Natural", "Cinematic"], {"default": "Default"}),
                 "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
-                "scale": ("FLOAT", {"default": 1.0, "min": 1.0, "max": 4.0, "step": 0.5}),
+                "scale": ("FLOAT", {"default": 1.0, "min": 1.0, "max": 16.0, "step": 0.5, "tooltip": "Scale factor. Up to 16.0 (1600%) supported in v17.5+"}),
                 "codec": (["HEVC", "H264", "AV1", "ProRes Proxy"], {"default": "HEVC"}),
                 "container": (["MKV", "MP4", "MOV"], {"default": "MKV"}),
                 "quality": (["Auto", "Good", "Best", "Max"], {"default": "Auto"}),
                 "target_fps": ("INT", {"default": 0, "min": 0, "max": 120, "step": 1, "tooltip": "0 = disabled. Target FPS for DLSS Frame Generation (Requires RTX 40/50 Series)."}),
+                "ray_reconstruction": ("BOOLEAN", {"default": False, "tooltip": "Enable DLSS Ray Reconstruction for video."}),
+                "optical_flow_quality": (["Disabled", "High", "Medium", "Low"], {"default": "Disabled", "tooltip": "NVIDIA Optical Flow quality for Ray Reconstruction video."}),
                 "filename_prefix": ("STRING", {"default": "DLSS5", "multiline": False}),
                 "output_directory": ("STRING", {"default": "", "multiline": False, "tooltip": "Relative path within ComfyUI output directory"}),
                 "copy_audio": ("BOOLEAN", {"default": True}),
@@ -143,9 +150,9 @@ class DLSS5_Video_File_Enhance_v15:
     RETURN_TYPES = ("STRING", "INT")
     RETURN_NAMES = ("output_path", "frames")
     FUNCTION = "process_video_file"
-    CATEGORY = "DLSS5_v15"
+    CATEGORY = "DLSS5_v17"
 
-    def process_video_file(self, video_path, style, strength, scale, codec, container, quality, target_fps, filename_prefix, output_directory, copy_audio):
+    def process_video_file(self, video_path, style, strength, scale, codec, container, quality, target_fps, ray_reconstruction, optical_flow_quality, filename_prefix, output_directory, copy_audio):
         cli_path = find_cli()
         cli_style = STYLE_MAP.get(style, "0")
 
@@ -157,23 +164,34 @@ class DLSS5_Video_File_Enhance_v15:
         final_filename = f"{filename_prefix}_{timestamp}.{container_ext}"
         final_output_path = out_dir / final_filename
 
+        codec_map = {"HEVC": "hevc", "H264": "h264", "AV1": "av1", "ProRes Proxy": "prores"}
+        quality_map = {"Auto": "auto", "Good": "good", "Best": "best", "Max": "max"}
+
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             render_path = tmpdir / f"render_out.{container_ext}"
             upscale_path = tmpdir / f"upscale_out.{container_ext}"
 
-            # Step 1: Neural Render
-            cmd = [str(cli_path), "render", str(input_path), "-o", str(render_path), "--style", cli_style, "--strength", str(strength), "--gpu", "auto", "--quiet", "--json"]
-            codec_map = {"HEVC": "hevc", "H264": "h264", "AV1": "av1", "ProRes Proxy": "prores"}
-            cmd.extend(["--codec", codec_map.get(codec, "hevc")])
-            cmd.extend(["--container", container_ext])
-            quality_map = {"Auto": "auto", "Good": "good", "Best": "best", "Max": "max"}
-            cmd.extend(["--quality", quality_map.get(quality, "auto")])
+            # Step 1: Render or Reconstruct
+            if ray_reconstruction:
+                print(f"[Video File] Processing with Ray Reconstruction...")
+                cmd = [str(cli_path), "reconstruct", str(input_path), "-o", str(render_path), "--gpu", "auto", "--quiet", "--json"]
+                cmd.extend(["--codec", codec_map.get(codec, "hevc")])
+                cmd.extend(["--container", container_ext])
+                cmd.extend(["--quality", quality_map.get(quality, "auto")])
+                
+                if optical_flow_quality != "Disabled":
+                    cmd.extend(["--flow-quality", optical_flow_quality.lower()])
+            else:
+                print(f"[Video File] Processing with Neural Render...")
+                cmd = [str(cli_path), "render", str(input_path), "-o", str(render_path), "--style", cli_style, "--strength", str(strength), "--gpu", "auto", "--quiet", "--json"]
+                cmd.extend(["--codec", codec_map.get(codec, "hevc")])
+                cmd.extend(["--container", container_ext])
+                cmd.extend(["--quality", quality_map.get(quality, "auto")])
 
-            print(f"[Video File] Processing: {input_path}")
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
-                raise Exception(f"DLSS5 Video Render failed: {result.stderr}")
+                raise Exception(f"DLSS5 Video Process failed: {result.stderr}")
 
             current_path = render_path
 
@@ -190,30 +208,30 @@ class DLSS5_Video_File_Enhance_v15:
             if target_fps > 0:
                 print(f"[Video File] Interpolating to {target_fps} FPS via DLSS Frame Generation...")
                 interpolate_path = tmpdir / f"interpolated_out.{container_ext}"
+
                 cmd_interpolate = [
                     str(cli_path), "interpolate", str(current_path),
                     "--fps", str(target_fps),
                     "-o", str(interpolate_path),
                     "--quiet", "--json"
                 ]
+
                 result = subprocess.run(cmd_interpolate, capture_output=True, text=True)
                 if result.returncode != 0:
                     raise Exception(f"DLSS5 Video Interpolation failed: {result.stderr}")
+
                 current_path = interpolate_path
                 print(f"[Video File] Interpolation complete.")
 
             # Step 4: Audio Preservation Fix (Uses imageio-ffmpeg)
             if copy_audio:
                 print(f"[Video File] Preserving audio from source...")
-
-                # 1. Try to get ffmpeg from imageio-ffmpeg (bundled)
                 ffmpeg_exe = None
                 try:
                     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
                 except Exception:
                     pass
 
-                # 2. Fallback to system PATH if imageio-ffmpeg fails
                 if not ffmpeg_exe:
                     ffmpeg_exe = shutil.which("ffmpeg")
 
@@ -221,15 +239,14 @@ class DLSS5_Video_File_Enhance_v15:
                     print(f"[Warning] ffmpeg not found. Saving video without audio.")
                     shutil.move(str(current_path), str(final_output_path))
                 else:
-                    # Use FFmpeg to copy the video stream and merge the original audio
                     ffmpeg_cmd = [
                         ffmpeg_exe, "-y",
-                        "-i", str(current_path),      # Input 0: Processed video
-                        "-i", str(input_path),        # Input 1: Original video (has audio)
-                        "-c:v", "copy",               # Copy video stream exactly as is
-                        "-c:a", "copy",               # Copy audio stream exactly as is
-                        "-map", "0:v:0",              # Map video from Input 0
-                        "-map", "1:a:0?",             # Map audio from Input 1 (optional if source is silent)
+                        "-i", str(current_path),
+                        "-i", str(input_path),
+                        "-c:v", "copy",
+                        "-c:a", "copy",
+                        "-map", "0:v:0",
+                        "-map", "1:a:0?",
                         str(final_output_path)
                     ]
                     try:
@@ -248,8 +265,8 @@ class DLSS5_Video_File_Enhance_v15:
 
 
 NODE_CLASS_MAPPINGS = {
-    "DLSS5_Enhance_Image": DLSS5_RTX_Enhance_v15,
-    "DLSS5_Enhance_Video": DLSS5_Video_File_Enhance_v15,
+    "DLSS5_Enhance_Image": DLSS5_RTX_Enhance_v17,
+    "DLSS5_Enhance_Video": DLSS5_Video_File_Enhance_v17,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
