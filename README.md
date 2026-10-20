@@ -8,6 +8,25 @@ It is not a filter that imitates a look. Frames go to the native renderer and co
 
 Unlike older community implementations that relied on ReShade injection, this pack drives the official **v17.5** headless CLI (`VE_CLI.exe`), providing a stable, native, and highly optimized pipeline.
 
+## 🚀 What's New in v1.1.0
+
+This update brings the node pack up to date with the official **DLSS 5 Visual Enhancer v17.5** runtime, featuring the latest **NVIDIA NGX Core version 310.9.16.0** (as of October 2026).
+
+### Component Version
+* **NVIDIA NGX Core:** `310.9.16.0`
+* **Release Date:** October 2026
+
+### What This Update Is
+This update delivers a major model optimization for **DLSS 5 Neural Rendering**. It uses advanced AI to replace traditional hand-tuned pipelines with photorealistic, AI-generated lighting, materials, and subsurface scattering, directly within your ComfyUI workflows.
+
+### Core Improvements for ComfyUI
+
+* **Reduced VRAM Consumption:** The optimized neural rendering model slashes the parameter count by **24%** and drops VRAM consumption by **20%**. This significantly reduces the chance of Out-Of-Memory errors when processing high-resolution images or long videos.
+* **Faster Render Times:** Neural workloads process up to **2x faster**, drastically lowering the time it takes to render frames and export videos.
+* **Greater Temporal Stability:** Operates on a refined single-frame-in, single-frame-out model that ensures rock-solid temporal stability, entirely eliminating AI shimmering, ghosting, or drifting in generated videos.
+* **Expanded Hardware Support:** Officially broadens support across the **NVIDIA GeForce RTX 50 Series** desktop GPUs and laptops.
+* **New Features:** Added native 1x resolution Ray Reconstruction, NVIDIA Optical Flow for video, and expanded upscaling up to 16x (1600%).
+
 ## How it Works
 
 This pack acts as a bridge between ComfyUI and the native DLSS 5 Visual Enhancer CLI.
