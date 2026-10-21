@@ -8,6 +8,8 @@ It is not a filter that imitates a look. Frames go to the native renderer and co
 
 Unlike older community implementations that relied on ReShade injection, this pack drives the official **v17.5** headless CLI (`VE_CLI.exe`), providing a stable, native, and highly optimized pipeline.
 
+> **Acknowledgment:** This node pack acts as a bridge to the excellent [DLSS 5 Visual Enhancer](https://github.com/Merserk/dlss5-visual-enhancer) project by Merserk. All underlying AI rendering, upscaling, and frame generation capabilities are powered by their work and the official NVIDIA runtime. This project simply makes that powerful technology accessible directly within ComfyUI workflows.
+
 ## 🚀 What's New in v1.1.0
 
 This update brings the node pack up to date with the official **DLSS 5 Visual Enhancer v17.5** runtime, featuring the latest **NVIDIA NGX Core version 310.9.16.0** (as of October 2026).
