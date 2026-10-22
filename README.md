@@ -90,6 +90,9 @@ Once the installation is complete, restart ComfyUI. The nodes will now appear in
 | **Smooth 30fps Video to 60fps** | `target_fps: 60` *(Requires RTX 40/50 GPU)* |
 | **High-Precision 3D/Render Cleanup** | Enable `ray_reconstruction`, `style: Default` |
 | **Maximum Contrast/Punch** | `style: Cinematic`, `strength: 1.0` |
+| **Pick a video without typing paths** | Use the `DLSS5 Video Path Selector` node (type, upload, or link a path) |
+| **Chain a second processing pass** | Link `output_path` ➔ a second Enhance node's `video_path` |
+| **Inspect fps / resolution / frame count** | Use the `DLSS5 Video Info` node |
 
 ### 🧠 Widget Pro-Tips
 | Widget | What it actually does | Pro-Tip / Gotcha |
@@ -97,6 +100,7 @@ Once the installation is complete, restart ComfyUI. The nodes will now appear in
 | **style** | Dictates the AI's reconstruction "personality". | `Natural` is best for faces. `Cinematic` adds contrast but can crush shadows. |
 | **strength** | Intensity of the neural effect. | **Never go above 1.5** unless you want AI hallucinations and weird artifacts. |
 | **scale** | RTX Upscaling multiplier. | Set to `1.0` to skip upscaling entirely and just apply Neural Rendering. |
+| **codec** | The hardware encoder used for output. | `H264` caps at 4096 px wide. Use `HEVC` or `AV1` for outputs wider than 4K. |
 | **ray_reconstruction** | Native 1x reconstruction for ray-traced data. | **Useless for standard AI images.** Only enable this if processing 3D renders or RTX game captures. |
 | **optical_flow_quality** | Temporal stability for Ray Reconstruction. | Only works if `ray_reconstruction` is enabled. Use `High` for final renders, `Low` for fast previews. |
 | **target_fps** | DLSS Frame Generation interpolation. | **RTX 40/50 ONLY.** Will fail silently or throw an error on RTX 20/30 cards. |
@@ -125,13 +129,25 @@ If you are using the `VE_CLI.exe` manually via terminal, here is how the ComfyUI
 
 ## Nodes & Controls
 
-This pack includes two highly optimized nodes:
+This pack includes four highly optimized nodes:
 
 ### 1. DLSS5 Enhance (Image)
 Takes an `IMAGE` batch, applies Neural Rendering (or Ray Reconstruction), and optionally upscales it. Outputs an `IMAGE` batch.
 
 ### 2. DLSS5 Enhance (Video)
 Takes a file path string, processes the video natively via the CLI, and saves the result to your output directory. Outputs the new file path string (`output_path`) and the frame count (`frames`).
+
+### 3. DLSS5 Video Path Selector
+Browse, upload, and chain video paths without ever typing them by hand.
+* **Single linkable `video_path` field:** type a relative path, or plug in a link directly (e.g. another node's `output_path` for multi-pass chaining).
+* **"Choose file to upload..." button:** uploads a video from your computer into the ComfyUI input folder and fills the path in automatically (duplicate names are auto-renamed).
+* **Live video preview:** updates when you upload, when you type, and every time the node executes — including when the path arrives via a link.
+* **Outputs:** `video_path` (STRING) and `video_info` (JSON with fps, frame_count, duration, width, height).
+
+### 4. DLSS5 Video Info
+A lightweight probe node designed for chaining. Plug any video path in (e.g. an Enhance node's `output_path`) and get technical metadata out.
+* **Outputs:** `video_info` (JSON), plus individual `width`, `height`, `fps` and `frame_count` values you can feed into math/logic nodes.
+* No dropdown and no preview — whatever path arrives on the input is exactly what gets probed on every run.
 
 ### Shared Controls
 | Widget | Options / Range | Effect |
@@ -145,14 +161,23 @@ Takes a file path string, processes the video natively via the CLI, and saves th
 ### Video File Specific Controls
 | Widget | Options / Range | Effect |
 | --- | --- | --- |
-| **video_path** | STRING | Relative path to video file within ComfyUI input folder (e.g., `my_video.mp4`). Absolute paths are blocked for security. |
-| **codec** | HEVC, H264, AV1, ProRes Proxy | The video encoder to use. H264 is recommended for maximum compatibility. |
+| **video_path** | STRING | Relative path to video file within ComfyUI input folder (e.g., `my_video.mp4`), or an absolute path inside the input/output folder (enables chaining from other nodes). Paths outside ComfyUI folders are blocked for security. |
+| **codec** | HEVC, H264, AV1, ProRes Proxy | The video encoder to use. H264 is recommended for maximum compatibility, but caps at 4096 px wide — use HEVC/AV1 for wider outputs. |
 | **container** | MKV, MP4, MOV | The output file container format. |
 | **quality** | Auto, Good, Best, Max | Encoding quality/bitrate. |
 | **target_fps** | INT (0-120, Default: 0) | 0 = disabled. Target FPS for DLSS Frame Generation interpolation. (Requires RTX 40/50 Series GPU). |
 | **filename_prefix** | STRING | Prefix for the output filename (a timestamp is automatically appended). |
 | **output_directory** | STRING | Relative subfolder path within ComfyUI output directory. Leave blank to use the default output folder. |
 | **copy_audio** | BOOLEAN | Whether to mux the original audio into the output file. |
+
+### Selector & Info Node Controls
+| Widget / Output | Type | Effect |
+| --- | --- | --- |
+| **video_path** (Selector & Info) | STRING (linkable) | Relative path within the input folder, or absolute path inside input/output. Accepts links from other nodes. |
+| **Choose file to upload...** | Button | Uploads a video from your computer into the ComfyUI input folder and sets `video_path` automatically. |
+| **Live preview** (Selector) | Preview | Plays the currently resolved video. Updates on upload, on manual edits, and on every execution (including linked paths). |
+| **video_info** | STRING (JSON) | `{"fps", "frame_count", "duration", "width", "height"}` of the resolved video. |
+| **width / height / fps / frame_count** (Info) | INT / FLOAT | Individual metadata values, ready for math and logic nodes. |
 
 ## Recommended Settings
 
@@ -177,14 +202,14 @@ Because the DLSS5 nodes focus purely on AI reconstruction and upscaling, it is h
 
 <img width="1431" height="870" alt="image_workflow" src="https://github.com/user-attachments/assets/4e41a104-b502-4c44-8440-6347c3cb9294" />
 
-`Load Image`  `DLSS5 Enhance (Image)` ➔ `Color Correction / Sharpening` ➔ `Save Image`
+`Load Image` ➔ `DLSS5 Enhance (Image)` ➔ `Color Correction / Sharpening` ➔ `Save Image`
 
 ### Video File Enhancement
-The video node accepts a relative file path and outputs a new file path. To preview the result and preserve audio, feed the output path into a `Load Video (Path)` node, and connect both the `IMAGE` and `audio` outputs to `Video Combine`.
+Pick your source with the **DLSS5 Video Path Selector** (type, upload, or link a path), or type a relative path straight into the Enhance node. The Enhance node outputs a new file path (`output_path`). Feed that path into a **DLSS5 Video Info** node for metadata, or into a `Load Video (Path)` node to visually preview the result and preserve audio by connecting both the `IMAGE` and `audio` outputs to `Video Combine`.
 
-<img width="1676" height="768" alt="video_workflow" src="https://github.com/user-attachments/assets/d215e230-cefc-4c85-95df-ac6802fba684" />
+<img width="2198" height="832" alt="video_workflow" src="https://github.com/user-attachments/assets/7a3179e6-c159-402e-b972-7302e47de3c3" />
 
-`DLSS5 Enhance (Video)` ➔ (output_path) ➔ `Load Video (Path)` ➔ (IMAGE & audio) ➔ `Video Combine`
+`DLSS5 Video Path Selector` ➔ `DLSS5 Enhance (Video)` ➔ (output_path) ➔ `DLSS5 Video Info` / `Load Video (Path)` ➔ `Video Combine`
 
 ## Troubleshooting
 
@@ -194,6 +219,10 @@ The video node accepts a relative file path and outputs a new file path. To prev
 | Runtime not found | The ~700MB runtime hasn't been downloaded. Run `install.py` manually to trigger the download. |
 | Node fails on GTX / AMD cards | These GPUs lack the physical Tensor Cores required for DLSS/RTX AI processing. The nodes will not work on these cards. |
 | Frame Generation fails on RTX 20/30 | DLSS Frame Generation strictly requires an **RTX 40 or 50 Series** GPU. Set `target_fps` to `0` to disable it. |
+| `Width N exceeds 4096` / upscale fails with nvenc error | The H264 hardware encoder caps at **4096 px wide**. Switch `codec` to **HEVC** or **AV1** for outputs wider than 4K, or lower `scale`. |
+| `Video file not found in input or output folder` | Paths must be relative to the input folder (e.g. `subfolder/video.mp4`) or absolute paths inside the ComfyUI input/output folders. External drives and other directories are blocked for security. |
+| Video preview doesn't update on a linked path | The preview refreshes when the node **executes**. If it still looks stale after a run, hard-refresh the browser (**Ctrl+F5**) to reload the frontend extension. |
+| Upload button rejects a file | Only video formats are accepted (`.mp4`, `.mkv`, `.mov`, `.webm`, `.avi`, `.m4v`). Duplicate filenames are automatically renamed with a `_1`, `_2` suffix. |
 | Video processing is very slow | Neural Rendering is computationally heavy. Processing a long video natively through the AI pipeline takes time. Ensure no other heavy GPU tasks (like games) are running. |
 | Output looks "plastic" or weird | Your `strength` is likely too high. Drop it to `0.7` or `1.0`, or switch the `style` to `Natural`. |
 
@@ -202,12 +231,13 @@ The video node accepts a relative file path and outputs a new file path. To prev
 ```text
 ComfyUI-DLSS5-Enhancer-v15/
    install.py             Downloads the runtime and prompts for license acceptance
-   nodes.py               The ComfyUI node definitions (Image & Video File)
+   nodes.py               The ComfyUI node definitions (Image, Video, Selector & Info)
    paths.py               Runtime discovery and validation
-   __init__.py            ComfyUI extension entrypoint
+   __init__.py            ComfyUI extension entrypoint (serves the web/ extension)
    README.md              This file
    LICENSE                MIT License for the Python source code
    requirements.txt       Python dependencies (imageio-ffmpeg)
+   web/                   Frontend extension (dlss5_selector.js: upload button + live preview)
    runtime/               Native runtime (VE_CLI.exe, NVIDIA DLLs) - *Not tracked in Git*
    config.json            Local path configuration - *Not tracked in Git*
 ```
