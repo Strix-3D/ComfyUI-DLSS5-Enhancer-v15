@@ -10,6 +10,10 @@ import folder_paths
 import datetime
 import shutil
 import imageio_ffmpeg
+import json
+import os
+from server import PromptServer
+from aiohttp import web
 
 from .paths import find_cli
 
@@ -20,9 +24,16 @@ STYLE_MAP = {
     "Cinematic": "2"
 }
 
+VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v"}
+
+# NVENC hardware encoder maximum widths per codec
+ENCODER_WIDTH_LIMITS = {"H264": 4096, "HEVC": 8192, "AV1": 8192, "ProRes Proxy": 32768}
+
+
 def natural_sort_key(s):
     """Helper to sort filenames naturally (frame_1, frame_2, frame_10)."""
     return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
+
 
 def is_safe_path(path_str: str, base_dir: Path) -> bool:
     """Check if a path is safe (no traversal, no absolute, no UNC)."""
@@ -38,23 +49,36 @@ def is_safe_path(path_str: str, base_dir: Path) -> bool:
     except Exception:
         return False
 
+
 def validate_video_path(video_path: str) -> Path:
-    """Validate video path is within ComfyUI input folder."""
+    """Validate video path is within ComfyUI input or output folder."""
     path_str = video_path.strip().strip('"')
     if not path_str:
         raise Exception("Video path cannot be empty")
+
+    input_dir = Path(folder_paths.get_input_directory()).resolve()
+    output_dir = Path(folder_paths.get_output_directory()).resolve()
+
+    # Absolute paths: only allowed inside ComfyUI input/output folders (enables node chaining)
     if path_str.startswith('/') or path_str.startswith('\\') or path_str.startswith('\\\\') or (len(path_str) > 1 and path_str[1] == ':'):
-        raise Exception("Video path must be relative to ComfyUI input folder.")
+        full_path = Path(path_str).resolve()
+        if not (str(full_path).startswith(str(input_dir)) or str(full_path).startswith(str(output_dir))):
+            raise Exception("Absolute video paths must be inside the ComfyUI input or output folder.")
+        if not full_path.is_file():
+            raise Exception(f"Video file not found: {full_path}")
+        return full_path
+
+    # Relative paths: try input folder first, then output folder
     if '..' in path_str.split('/') or '..' in path_str.split('\\'):
         raise Exception("Video path cannot contain '..'")
 
-    input_dir = Path(folder_paths.get_input_directory())
-    full_path = (input_dir / path_str).resolve()
-    if not str(full_path).startswith(str(input_dir.resolve())):
-        raise Exception("Video path must be within ComfyUI input folder")
-    if not full_path.is_file():
-        raise Exception(f"Video file not found: {full_path}")
-    return full_path
+    for base in (input_dir, output_dir):
+        candidate = (base / path_str).resolve()
+        if str(candidate).startswith(str(base)) and candidate.is_file():
+            return candidate
+
+    raise Exception(f"Video file not found in input or output folder: {path_str}")
+
 
 def validate_output_path(output_directory: str, filename_prefix: str) -> Path:
     """Validate and construct safe output path within ComfyUI output folder."""
@@ -68,6 +92,97 @@ def validate_output_path(output_directory: str, filename_prefix: str) -> Path:
         raise Exception("filename_prefix cannot contain path separators, drive letters, or '..'")
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
+
+
+def find_ffmpeg_tools():
+    """Locate ffprobe (preferred) and ffmpeg (fallback)."""
+    ffprobe_exe = shutil.which("ffprobe")
+    ffmpeg_exe = None
+    try:
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        pass
+    if not ffmpeg_exe:
+        ffmpeg_exe = shutil.which("ffmpeg")
+    # ffprobe often sits right next to a system ffmpeg install
+    if not ffprobe_exe and ffmpeg_exe:
+        sibling = Path(ffmpeg_exe).parent / ("ffprobe.exe" if os.name == "nt" else "ffprobe")
+        if sibling.is_file():
+            ffprobe_exe = str(sibling)
+    return ffmpeg_exe, ffprobe_exe
+
+
+def probe_video_info(video_path: Path) -> dict:
+    """Return fps, frame_count, duration, width and height as a dict."""
+    info = {"fps": 0.0, "frame_count": 0, "duration": 0.0, "width": 0, "height": 0}
+    ffmpeg_exe, ffprobe_exe = find_ffmpeg_tools()
+
+    # --- Preferred path: ffprobe (exact metadata, instant) ---
+    if ffprobe_exe:
+        try:
+            result = subprocess.run(
+                [ffprobe_exe, "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height,avg_frame_rate,nb_frames",
+                 "-show_entries", "format=duration",
+                 "-of", "json", str(video_path)],
+                capture_output=True, text=True)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                stream = (data.get("streams") or [{}])[0]
+                fmt = data.get("format", {})
+                fps = 0.0
+                fr = str(stream.get("avg_frame_rate", "0/1"))
+                if "/" in fr:
+                    num, den = fr.split("/")
+                    if float(den) > 0:
+                        fps = float(num) / float(den)
+                else:
+                    fps = float(fr)
+                duration = float(fmt.get("duration") or 0.0)
+                nb = stream.get("nb_frames")
+                if nb and nb != "N/A":
+                    frame_count = int(nb)
+                else:
+                    frame_count = round(duration * fps) if fps > 0 else 0
+                info.update({
+                    "fps": round(fps, 3),
+                    "frame_count": frame_count,
+                    "duration": round(duration, 3),
+                    "width": int(stream.get("width", 0)),
+                    "height": int(stream.get("height", 0)),
+                })
+                return info
+        except Exception:
+            pass
+
+    # --- Fallback: parse bundled ffmpeg output (no ffprobe installed) ---
+    if ffmpeg_exe:
+        try:
+            result = subprocess.run([ffmpeg_exe, "-hide_banner", "-i", str(video_path)],
+                                    capture_output=True, text=True)
+            err = result.stderr
+            dur_m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", err)
+            if dur_m:
+                h, m, s = dur_m.groups()
+                info["duration"] = round(int(h) * 3600 + int(m) * 60 + float(s), 3)
+            size_m = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", err)
+            if size_m:
+                info["width"], info["height"] = int(size_m.group(1)), int(size_m.group(2))
+            fps_m = re.search(r"(\d+(?:\.\d+)?)\s*fps", err)
+            if fps_m:
+                info["fps"] = round(float(fps_m.group(1)), 3)
+            # Exact frame count via fast demux-only pass (no re-encoding)
+            count = subprocess.run(
+                [ffmpeg_exe, "-i", str(video_path), "-map", "0:v:0", "-c", "copy", "-f", "null", "-"],
+                capture_output=True, text=True)
+            frames = re.findall(r"frame=\s*(\d+)", count.stderr)
+            if frames:
+                info["frame_count"] = int(frames[-1])
+            elif info["fps"] > 0 and info["duration"] > 0:
+                info["frame_count"] = round(info["fps"] * info["duration"])
+        except Exception:
+            pass
+    return info
 
 
 class DLSS5_RTX_Enhance_v17:
@@ -110,7 +225,7 @@ class DLSS5_RTX_Enhance_v17:
                 else:
                     # Use standard 'render' command
                     cmd_render = [str(cli_path), "render", str(input_path), "-o", str(render_path), "--style", cli_style, "--strength", str(strength), "--format", fmt, "--gpu", "auto", "--quiet", "--json"]
-                
+
                 subprocess.run(cmd_render, capture_output=True, text=True, check=True)
 
                 # Step 2: Upscale (Optional)
@@ -131,7 +246,7 @@ class DLSS5_Video_File_Enhance_v17:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "video_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Relative path to video file within ComfyUI input folder"}),
+                "video_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Relative path to video file within ComfyUI input folder, or a linked path from another node."}),
                 "style": (["Default", "Natural", "Cinematic"], {"default": "Default"}),
                 "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.1}),
                 "scale": ("FLOAT", {"default": 1.0, "min": 1.0, "max": 16.0, "step": 0.5, "tooltip": "Scale factor. Up to 16.0 (1600%) supported in v17.5+"}),
@@ -159,6 +274,23 @@ class DLSS5_Video_File_Enhance_v17:
         input_path = validate_video_path(video_path)
         out_dir = validate_output_path(output_directory, filename_prefix)
 
+        # --- Pre-flight: hardware encoder resolution limits ---
+        if scale > 1.0:
+            src_info = probe_video_info(input_path)
+            src_w = src_info.get("width", 0)
+            src_h = src_info.get("height", 0)
+            if src_w > 0:
+                out_w = int(round(src_w * scale))
+                out_h = int(round(src_h * scale))
+                max_w = ENCODER_WIDTH_LIMITS.get(codec, 8192)
+                if out_w > max_w:
+                    max_scale = max_w / src_w
+                    raise Exception(
+                        f"Output resolution {out_w}x{out_h} exceeds the {codec} hardware "
+                        f"encoder limit ({max_w} px max width). Switch codec to HEVC/AV1, "
+                        f"or lower scale to {max_scale:.1f} or below."
+                    )
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         container_ext = container.lower()
         final_filename = f"{filename_prefix}_{timestamp}.{container_ext}"
@@ -179,7 +311,7 @@ class DLSS5_Video_File_Enhance_v17:
                 cmd.extend(["--codec", codec_map.get(codec, "hevc")])
                 cmd.extend(["--container", container_ext])
                 cmd.extend(["--quality", quality_map.get(quality, "auto")])
-                
+
                 if optical_flow_quality != "Disabled":
                     cmd.extend(["--flow-quality", optical_flow_quality.lower()])
             else:
@@ -259,17 +391,115 @@ class DLSS5_Video_File_Enhance_v17:
                 shutil.move(str(current_path), str(final_output_path))
 
             print(f"[Video File] Saved to: {final_output_path}")
-            frame_count = 0
 
+        # Report the real frame count of the finished file
+        frame_count = probe_video_info(final_output_path).get("frame_count", 0)
         return (str(final_output_path), frame_count)
+
+
+class DLSS5_Video_Path_Selector:
+    """Single linkable video_path widget with upload button and live preview
+    (preview is rendered by the bundled web/dlss5_selector.js extension)."""
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "video_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Relative path within the input folder, or accept a link (e.g. from DLSS5 Enhance output_path). Use the button to upload a new file."}),
+            },
+            "hidden": {"unique_id": "UNIQUE_ID"},
+        }
+
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("video_path", "video_info")
+    FUNCTION = "get_path"
+    CATEGORY = "DLSS5_v17"
+
+    def get_path(self, video_path, unique_id=None):
+        full_path = validate_video_path(video_path)
+        info = probe_video_info(full_path)
+        # Tell the browser exactly which file this node just resolved
+        if unique_id is not None:
+            try:
+                PromptServer.instance.send_sync("dlss5_preview", {"node_id": unique_id, "path": video_path})
+            except Exception:
+                pass
+        return (video_path, json.dumps(info))
+
+
+# ---------------------------------------------------------------------------
+# Server routes for the frontend extension (upload button + video preview)
+# ---------------------------------------------------------------------------
+@PromptServer.instance.routes.get("/dlss5/view")
+async def dlss5_view(request):
+    """Stream a video from the input/output folder for the node preview."""
+    rel = request.query.get("path", "")
+    try:
+        full = validate_video_path(rel)
+    except Exception as e:
+        return web.Response(status=400, text=str(e))
+    return web.FileResponse(full)
+
+
+@PromptServer.instance.routes.post("/dlss5/upload")
+async def dlss5_upload(request):
+    """Upload a video into the ComfyUI input folder and return its relative path."""
+    reader = await request.multipart()
+    field = await reader.next()
+    if field is None:
+        return web.Response(status=400, text="No file received.")
+    filename = Path(field.filename or "").name  # strip any client-side path
+    if Path(filename).suffix.lower() not in VIDEO_EXTS:
+        return web.Response(status=400, text="Unsupported file type. Video files only.")
+    target_dir = Path(folder_paths.get_input_directory())
+    target = target_dir / filename
+    counter = 1
+    while target.exists():
+        target = target_dir / f"{Path(filename).stem}_{counter}{Path(filename).suffix}"
+        counter += 1
+    with target.open("wb") as sink:
+        while True:
+            chunk = await field.read_chunk()
+            if not chunk:
+                break
+            sink.write(chunk)
+    return web.json_response({"path": target.relative_to(target_dir).as_posix()})
+
+
+class DLSS5_Video_Info:
+    """Probes any video path (linked from other nodes or typed manually)
+    and returns technical info as JSON plus individual values.
+    Designed for chaining: plug an Enhance node's output_path straight in."""
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "video_path": ("STRING", {"default": "", "multiline": False, "tooltip": "Video path. Designed to accept links, e.g. from DLSS5 Enhance (Video) output_path."}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "INT", "INT", "FLOAT", "INT")
+    RETURN_NAMES = ("video_info", "width", "height", "fps", "frame_count")
+    FUNCTION = "probe"
+    CATEGORY = "DLSS5_v17"
+
+    def probe(self, video_path):
+        full_path = validate_video_path(video_path)
+        info = probe_video_info(full_path)
+        return (json.dumps(info), info["width"], info["height"], info["fps"], info["frame_count"])
 
 
 NODE_CLASS_MAPPINGS = {
     "DLSS5_Enhance_Image": DLSS5_RTX_Enhance_v17,
     "DLSS5_Enhance_Video": DLSS5_Video_File_Enhance_v17,
+    "DLSS5_Video_Path_Selector": DLSS5_Video_Path_Selector,
+    "DLSS5_Video_Info": DLSS5_Video_Info,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DLSS5_Enhance_Image": "DLSS5 Enhance (Image)",
     "DLSS5_Enhance_Video": "DLSS5 Enhance (Video)",
+    "DLSS5_Video_Path_Selector": "DLSS5 Video Path Selector",
+    "DLSS5_Video_Info": "DLSS5 Video Info",
 }
