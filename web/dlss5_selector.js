@@ -1,7 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-// Server pushes the real executed path straight to this node's preview
 api.addEventListener("dlss5_preview", (e) => {
     const detail = e.detail || {};
     let node = app.graph.getNodeById(Number(detail.node_id));
@@ -20,23 +19,49 @@ app.registerExtension({
             const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
             const node = this;
 
-            // --- Live video preview (DOM widget) ---
+            // Fixed default size
+            node.size = [400, 360];
+            node.setSize([400, 360]);
+
+            // Simple video element
             const videoEl = document.createElement("video");
             videoEl.controls = true;
-            videoEl.style.width = "100%";
-            videoEl.style.maxHeight = "220px";
+            videoEl.style.width = "380px";
+            videoEl.style.height = "214px";
             videoEl.style.background = "#000";
+            videoEl.style.display = "none";
+            videoEl.style.objectFit = "contain";
+            
             const domWidget = node.addDOMWidget("video_preview", "video", videoEl);
             domWidget.serialize = false;
 
+            // Simple placeholder
+            const placeholderEl = document.createElement("div");
+            placeholderEl.textContent = "Select or upload a video to preview";
+            placeholderEl.style.padding = "40px 20px";
+            placeholderEl.style.textAlign = "center";
+            placeholderEl.style.color = "#666";
+            placeholderEl.style.fontSize = "12px";
+            placeholderEl.style.fontStyle = "italic";
+            
+            const placeholderWidget = node.addDOMWidget("video_placeholder", "div", placeholderEl);
+            placeholderWidget.serialize = false;
+
             const setPreview = (path) => {
-                if (!path) { videoEl.removeAttribute("src"); videoEl.load(); return; }
+                if (!path) {
+                    videoEl.style.display = "none";
+                    placeholderEl.style.display = "block";
+                    videoEl.removeAttribute("src");
+                    videoEl.load();
+                    return;
+                }
+                placeholderEl.style.display = "none";
+                videoEl.style.display = "block";
                 videoEl.src = "/dlss5/view?path=" + encodeURIComponent(path) + "&t=" + Date.now();
                 videoEl.load();
             };
             node.__dlss5SetPreview = setPreview;
 
-            // --- Upload button ---
             const btn = node.addWidget("button", "Choose file to upload...", null, () => {
                 const input = document.createElement("input");
                 input.type = "file";
@@ -64,7 +89,6 @@ app.registerExtension({
             });
             btn.serialize = false;
 
-            // --- Manual typing updates preview ---
             const pathWidget = node.widgets.find((x) => x.name === "video_path");
             if (pathWidget) {
                 const origCb = pathWidget.callback;
@@ -74,15 +98,6 @@ app.registerExtension({
                 };
             }
 
-            // --- Show widget value on creation (only when NOT linked) ---
-            const onConfigure = node.onConfigure;
-            node.onConfigure = function () {
-                const r2 = onConfigure ? onConfigure.apply(this, arguments) : undefined;
-                const linked = node.inputs && node.inputs.some((i) => i.name === "video_path" && i.link != null);
-                const w = node.widgets.find((x) => x.name === "video_path");
-                if (!linked && w && w.value) setPreview(w.value);
-                return r2;
-            };
             return r;
         };
     },
