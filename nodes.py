@@ -13,10 +13,10 @@ import imageio_ffmpeg
 import json
 import os
 import hashlib
+import wave
 from server import PromptServer
 from aiohttp import web
 from skimage.color import rgb2lab, lab2rgb
-
 from .paths import find_cli
 
 # Map friendly names to CLI arguments
@@ -31,7 +31,7 @@ VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v"}
 # NVENC hardware encoder maximum widths per codec
 ENCODER_WIDTH_LIMITS = {"H264": 4096, "HEVC": 8192, "AV1": 8192, "ProRes Proxy": 32768}
 
-# Display label -> value stored in the preset (confirmed via app export diff)
+# Display label -> value stored in the preset
 DLSS_MODE_MAP = {
     "1x (DLAA / native)": "DLAA",
     "1.5x (Quality)": "Quality",
@@ -59,13 +59,16 @@ def is_safe_path(path_str: str, base_dir: Path) -> bool:
 
 
 def validate_video_path(video_path: str) -> Path:
-    """Validate video path is within ComfyUI input or output folder."""
+    """Validate video path is within ComfyUI input or output folder.
+    Supports both input-relative paths and ComfyUI-root-relative paths."""
     path_str = video_path.strip().strip('"')
     if not path_str:
         raise Exception("Video path cannot be empty")
 
     input_dir = Path(folder_paths.get_input_directory()).resolve()
     output_dir = Path(folder_paths.get_output_directory()).resolve()
+    comfyui_root = Path(folder_paths.base_path).resolve()
+    comfyui_parent = comfyui_root.parent
 
     if path_str.startswith('/') or path_str.startswith('\\') or path_str.startswith('\\\\') or (len(path_str) > 1 and path_str[1] == ':'):
         full_path = Path(path_str).resolve()
@@ -78,10 +81,21 @@ def validate_video_path(video_path: str) -> Path:
     if '..' in path_str.split('/') or '..' in path_str.split('\\'):
         raise Exception("Video path cannot contain '..'")
 
+    # Try relative to ComfyUI parent (VideoHelperSuite format)
+    candidate = (comfyui_parent / path_str).resolve()
+    if (str(candidate).startswith(str(input_dir)) or str(candidate).startswith(str(output_dir))) and candidate.is_file():
+        return candidate
+
+    # Try relative to input/output directories
     for base in (input_dir, output_dir):
         candidate = (base / path_str).resolve()
         if str(candidate).startswith(str(base)) and candidate.is_file():
             return candidate
+
+    # Try relative to ComfyUI root
+    candidate = (comfyui_root / path_str).resolve()
+    if (str(candidate).startswith(str(input_dir)) or str(candidate).startswith(str(output_dir))) and candidate.is_file():
+        return candidate
 
     raise Exception(f"Video file not found in input or output folder: {path_str}")
 
@@ -186,6 +200,7 @@ def probe_video_info(video_path: Path) -> dict:
             pass
     return info
 
+
 def _hash_file(path: Path, algo="sha1"):
     """Fast content hash used for upload deduplication."""
     h = hashlib.new(algo)
@@ -194,11 +209,9 @@ def _hash_file(path: Path, algo="sha1"):
             h.update(chunk)
     return h.hexdigest()
 
+
 def write_preset_file(preset_json: str, tmpdir: Path):
-    """Validate preset JSON content, sanitize conflicting export settings, and write to tmpdir.
-    Strips export/codec/HDR keys so node widgets and CLI flags stay authoritative.
-    NOTE: DLSS Super Resolution mode/preset keys are intentionally NOT stripped so the
-    Pro Controls 'DLSS Mode' / 'DLSS Preset' widgets reach the CLI."""
+    """Validate preset JSON content, sanitize conflicting export settings, and write to tmpdir."""
     if not preset_json or not preset_json.strip():
         return None
     try:
@@ -209,7 +222,6 @@ def write_preset_file(preset_json: str, tmpdir: Path):
         raise Exception("Preset JSON must be a top-level object.")
 
     # Force the schema version the CLI accepts (38).
-    # This also makes app-exported presets (schema 41) compatible.
     data["schema_version"] = 38
 
     settings = data.get("settings", {})
@@ -384,8 +396,11 @@ class DLSS5_Video_File_Enhance_v17:
                 "Filename Prefix": ("STRING", {"default": "DLSS5", "multiline": False}),
                 "Output Directory": ("STRING", {"default": "", "multiline": False, "tooltip": "Relative path within ComfyUI output directory"}),
                 "Copy Audio": ("BOOLEAN", {"default": True}),
+                "Input FPS": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 120.0, "step": 1.0, "tooltip": "Frame rate used ONLY when encoding an IMAGE batch into a temporary video."}),
             },
             "optional": {
+                "Images": ("IMAGE", {"tooltip": "Optional: Pass an IMAGE batch (e.g. from VideoHelperSuite). The node will encode it to a temp video for flicker-free processing."}),
+                "Audio": ("AUDIO", {"tooltip": "Optional: Audio track to mux into the temporary video when using an IMAGE batch."}),
                 "Pro Controls": ("STRING", {"default": "", "forceInput": True, "tooltip": "Output from DLSS5 Pro Controls node."}),
             },
         }
@@ -397,6 +412,8 @@ class DLSS5_Video_File_Enhance_v17:
 
     def process_video_file(self, **kwargs):
         video_path = kwargs.get("Video Path", "")
+        images = kwargs.get("Images", None)
+        audio = kwargs.get("Audio", None)
         nr_style = kwargs.get("NR Style", "Default")
         nr_intensity = kwargs.get("NR Intensity", 1.0)
         nr_passes = kwargs.get("NR Passes", 1)
@@ -411,20 +428,122 @@ class DLSS5_Video_File_Enhance_v17:
         output_directory = kwargs.get("Output Directory", "")
         copy_audio = kwargs.get("Copy Audio", True)
         pro_controls = kwargs.get("Pro Controls", "")
+        input_fps = kwargs.get("Input FPS", 24.0)
 
         cli_path = find_cli()
         cli_style = STYLE_MAP.get(nr_style, "0")
 
-        input_path = validate_video_path(video_path)
+        # 1. Determine the input source (Images batch OR Video Path)
+        input_path = None
+        run_tmpdir = None
+        final_audio_source = None
+
+        if images is not None:
+            print("[DLSS5 Video] Received IMAGE batch. Encoding to temporary video for temporal stability...")
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
+            # Convert tensor [B, H, W, C] to numpy [B, H, W, 3] uint8
+            img_np = np.clip(images.cpu().numpy() * 255.0, 0, 255).astype(np.uint8)
+
+            # CRITICAL CHECK: The DLSS CLI requires at least 2 frames to encode a video.
+            if img_np.shape[0] < 2:
+                raise Exception(f"The DLSS CLI requires at least 2 frames to process video. The input batch only contains {img_np.shape[0]} frame(s). This usually happens if the video loader failed to read the file. Please check your video path or use the 'DLSS5 Enhance (Image)' node for single images.")
+
+            run_tmpdir = Path(tempfile.mkdtemp(prefix="dlss5_hybrid_"))
+            temp_silent_path = run_tmpdir / "temp_input_silent.mp4"
+
+            try:
+                writer = imageio_ffmpeg.write_frames(str(temp_silent_path), (img_np.shape[2], img_np.shape[1]), fps=input_fps)
+                writer.send(None)
+                for frame in img_np:
+                    writer.send(frame)
+                writer.close()
+
+                if not temp_silent_path.exists() or temp_silent_path.stat().st_size == 0:
+                    raise Exception("Failed to create temporary video file.")
+
+                print(f"[DLSS5 Video] Encoded {len(img_np)} frames to silent temp video at {input_fps} FPS.")
+                input_path = temp_silent_path
+            except Exception as e:
+                raise Exception(f"Error encoding images to temp video: {e}")
+
+            # Handle Audio Extraction (but don't mux yet!)
+            if audio is not None and copy_audio:
+                print("[DLSS5 Video] Preparing audio for final muxing...")
+                temp_audio_path = run_tmpdir / "temp_audio.wav"
+
+                try:
+                    waveform = None
+                    sample_rate = 44100
+                    audio_file_path = None
+
+                    # Robust extraction logic
+                    if hasattr(audio, 'get_audio'):
+                        waveform, sample_rate = audio.get_audio()
+                    elif isinstance(audio, dict):
+                        waveform = audio.get('waveform')
+                        sample_rate = audio.get('sample_rate', 44100)
+                    else:
+                        for attr in ['audio_path', 'file_path', 'path', 'source_path']:
+                            if hasattr(audio, attr):
+                                audio_file_path = getattr(audio, attr)
+                                break
+                        if audio_file_path is None:
+                            try:
+                                waveform = audio['waveform']
+                                sample_rate = audio['sample_rate']
+                            except:
+                                raise Exception(f"Unsupported audio format: {type(audio)}")
+
+                    if audio_file_path:
+                        print(f"[DLSS5 Video] Using source audio file directly: {audio_file_path}")
+                        final_audio_source = audio_file_path
+                    else:
+                        # Convert tensor to WAV using built-in wave module
+                        if waveform is not None and waveform.dim() == 3:
+                            waveform = waveform.squeeze(0)
+
+                        data = np.clip(waveform.cpu().numpy() * 32767, -32768, 32767).astype(np.int16)
+                        channels, samples = data.shape[0], data.shape[1]
+
+                        with wave.open(str(temp_audio_path), 'w') as wav_file:
+                            wav_file.setnchannels(channels)
+                            wav_file.setsampwidth(2)
+                            wav_file.setframerate(sample_rate)
+                            wav_file.setnframes(samples)
+                            wav_file.setcomptype('NONE', 'not compressed')
+                            if channels > 1:
+                                data = data.T.flatten()
+                            wav_file.writeframes(data.tobytes())
+
+                        final_audio_source = str(temp_audio_path)
+                        print("[DLSS5 Video] Audio saved to temporary WAV file.")
+
+                except Exception as e:
+                    print(f"[Warning] Failed to prepare audio: {e}. Output will be silent.")
+                    copy_audio = False
+        else:
+            if not video_path:
+                raise Exception("Either 'Video Path' or 'Images' must be provided.")
+            input_path = validate_video_path(video_path)
+            if copy_audio:
+                final_audio_source = str(input_path)
+
+        if input_path is None:
+            raise Exception("No valid input path determined.")
+
         out_dir = validate_output_path(output_directory, filename_prefix)
 
         if scale > 1.0:
             src_info = probe_video_info(input_path)
-            src_w = src_info.get("width", 0)
-            src_h = src_info.get("height", 0)
+            src_w, src_h = src_info.get("width", 0), src_info.get("height", 0)
             if src_w > 0:
-                out_w = int(round(src_w * scale))
-                out_h = int(round(src_h * scale))
+                out_w, out_h = int(round(src_w * scale)), int(round(src_h * scale))
+                # Ensure even dimensions for NVENC hardware encoder
+                if out_w % 2 != 0:
+                    out_w += 1
+                if out_h % 2 != 0:
+                    out_h += 1
                 max_w = ENCODER_WIDTH_LIMITS.get(codec, 8192)
                 if out_w > max_w:
                     max_scale = max_w / src_w
@@ -445,6 +564,7 @@ class DLSS5_Video_File_Enhance_v17:
         # Inject NR Passes into the incoming Pro Controls JSON
         preset_json = inject_nr_passes(pro_controls, nr_passes)
 
+        # Use a temporary directory for intermediate CLI files
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             render_path = tmpdir / f"render_out.{container_ext}"
@@ -504,8 +624,9 @@ class DLSS5_Video_File_Enhance_v17:
                 current_path = interpolate_path
                 print(f"[Video File] Interpolation complete.")
 
-            if copy_audio:
-                print(f"[Video File] Preserving audio from source...")
+            # Final Muxing (Combine enhanced video with audio source)
+            if copy_audio and final_audio_source:
+                print(f"[Video File] Muxing audio to final output...")
                 ffmpeg_exe = None
                 try:
                     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
@@ -522,11 +643,10 @@ class DLSS5_Video_File_Enhance_v17:
                     ffmpeg_cmd = [
                         ffmpeg_exe, "-y",
                         "-i", str(current_path),
-                        "-i", str(input_path),
+                        "-i", str(final_audio_source),
                         "-c:v", "copy",
-                        "-c:a", "copy",
-                        "-map", "0:v:0",
-                        "-map", "1:a:0?",
+                        "-c:a", "aac",
+                        "-shortest",
                         str(final_output_path)
                     ]
                     try:
@@ -540,44 +660,107 @@ class DLSS5_Video_File_Enhance_v17:
 
             print(f"[Video File] Saved to: {final_output_path}")
 
+        # Cleanup the temp input directory if we created one from an image batch
+        if run_tmpdir and run_tmpdir.exists():
+            shutil.rmtree(run_tmpdir, ignore_errors=True)
+
         return (str(final_output_path),)
 
 
 class DLSS5_Video_Path_Selector:
-    """Single linkable video_path widget with upload button and live preview."""
-
+    """Robust video path selector that also loads frames and audio using ffmpeg."""
+    OUTPUT_NODE = True
+    
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
                 "Video Path": ("STRING", {"default": "", "multiline": False, "tooltip": "Relative path within the input folder. Use the button to upload."}),
+                "frame_load_cap": ("INT", {"default": 0, "min": 0, "max": 10000, "step": 1, "tooltip": "0 = load all frames. Limit this to prevent memory crashes on long videos."}),
             },
             "hidden": {"unique_id": "UNIQUE_ID"},
         }
 
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("video_path",)
+    RETURN_TYPES = ("STRING", "IMAGE", "AUDIO")
+    RETURN_NAMES = ("video_path", "images", "audio")
     FUNCTION = "get_path"
     CATEGORY = "DLSS5_v17"
 
     def get_path(self, **kwargs):
-        # We must use kwargs.get("Video Path") because the widget name has a space
         video_path = kwargs.get("Video Path", "")
+        frame_load_cap = kwargs.get("frame_load_cap", 0)
         unique_id = kwargs.get("unique_id")
 
-        # If the box is empty, return an empty string to prevent a crash here
-        # (The downstream node will handle the "path cannot be empty" error if needed)
+        empty_img = torch.zeros(1, 64, 64, 3, device="cpu")
+        empty_audio = {"waveform": torch.zeros(1, 1, device="cpu"), "sample_rate": 44100}
+
         if not video_path:
-            return ("",)
+            return ("", empty_img, empty_audio)
 
-        full_path = validate_video_path(video_path)
+        try:
+            full_path = validate_video_path(video_path)
+        except Exception:
+            return ("", empty_img, empty_audio)
 
+        # 1. Load Video Frames using robust ffmpeg subprocess
+        img_tensor = empty_img
+        try:
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            info = probe_video_info(full_path)
+            w, h = info["width"], info["height"]
+            
+            if w == 0 or h == 0:
+                raise Exception("Could not determine video resolution.")
+
+            cmd = [ffmpeg_exe, "-i", str(full_path)]
+            if frame_load_cap > 0:
+                cmd.extend(["-frames:v", str(frame_load_cap)])
+            # Extract raw RGB frames to pipe
+            cmd.extend(["-f", "image2pipe", "-pix_fmt", "rgb24", "-vcodec", "rawvideo", "-"])
+            
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            frames = []
+            frame_size = w * h * 3
+            
+            while True:
+                raw_frame = proc.stdout.read(frame_size)
+                if not raw_frame:
+                    break
+                frame_np = np.frombuffer(raw_frame, dtype=np.uint8).reshape((h, w, 3))
+                frames.append(frame_np)
+            proc.wait()
+            
+            if frames:
+                img_np = np.stack(frames, axis=0)
+                img_tensor = torch.from_numpy(img_np).float() / 255.0
+                print(f"[DLSS5 Selector] Successfully loaded {len(frames)} frames.")
+        except Exception as e:
+            print(f"[DLSS5] Warning: Could not load video frames: {e}")
+
+        # 2. Load Audio using ffmpeg + wave module
+        audio_dict = empty_audio
+        try:
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            with tempfile.TemporaryDirectory() as tmpdir:
+                temp_wav = Path(tmpdir) / "temp_audio.wav"
+                if subprocess.run([ffmpeg_exe, "-y", "-i", str(full_path), "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", str(temp_wav)], capture_output=True).returncode == 0 and temp_wav.exists():
+                    import wave
+                    with wave.open(str(temp_wav), 'rb') as wav_file:
+                        n_channels, sample_width, framerate, n_frames = wav_file.getnchannels(), wav_file.getsampwidth(), wav_file.getframerate(), wav_file.getnframes()
+                        audio_array = np.frombuffer(wav_file.readframes(n_frames), dtype=np.int16 if sample_width == 2 else np.int32)
+                        audio_array = audio_array.reshape(-1, n_channels).T if n_channels > 1 else audio_array.reshape(1, -1)
+                        audio_dict = {"waveform": torch.from_numpy(audio_array.astype(np.float32) / 32768.0), "sample_rate": framerate}
+        except Exception:
+            pass
+
+        # 3. Trigger Preview Update
         if unique_id is not None:
             try:
                 PromptServer.instance.send_sync("dlss5_preview", {"node_id": unique_id, "path": video_path})
             except Exception:
                 pass
-        return (video_path,)
+                
+        return (video_path, img_tensor, audio_dict)
 
 
 # ---------------------------------------------------------------------------
@@ -604,6 +787,7 @@ async def dlss5_upload(request):
         return web.Response(status=400, text="Unsupported file type. Video files only.")
 
     target_dir = Path(folder_paths.get_input_directory())
+    comfyui_parent = Path(folder_paths.base_path).parent
 
     # Stream the upload to a temp file while computing size + hash (single pass)
     h = hashlib.sha1()
@@ -621,7 +805,6 @@ async def dlss5_upload(request):
         new_hash = h.hexdigest()
 
         # Look for an identical file ANYWHERE in the input tree (incl. subfolders).
-        # Size check first so we only hash real candidates.
         for candidate in target_dir.rglob("*"):
             if not candidate.is_file() or candidate.suffix.lower() not in VIDEO_EXTS:
                 continue
@@ -631,23 +814,24 @@ async def dlss5_upload(request):
             except OSError:
                 continue
             if _hash_file(candidate) == new_hash:
-                # Exact duplicate already present: reuse it, throw the upload away
                 try:
                     tmp_path.unlink()
                 except OSError:
                     pass
-                print(f"[DLSS5] Upload dedup: reusing existing {candidate.relative_to(target_dir).as_posix()}")
-                return web.json_response({"path": candidate.relative_to(target_dir).as_posix()})
+                rel_path = candidate.relative_to(comfyui_parent).as_posix()
+                print(f"[DLSS5] Upload dedup: reusing existing {rel_path}")
+                return web.json_response({"path": rel_path})
 
-        # No duplicate found: move into place, de-duplicating the NAME only if
-        # a different-content file already uses it
+        # No duplicate found: move into place
         target = target_dir / filename
         counter = 1
         while target.exists():
             target = target_dir / f"{Path(filename).stem}_{counter}{Path(filename).suffix}"
             counter += 1
         shutil.move(str(tmp_path), str(target))
-        return web.json_response({"path": target.relative_to(target_dir).as_posix()})
+
+        rel_path = target.relative_to(comfyui_parent).as_posix()
+        return web.json_response({"path": rel_path})
     except Exception:
         try:
             if tmp_path.exists():

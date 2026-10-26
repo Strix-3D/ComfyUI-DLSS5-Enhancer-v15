@@ -19,8 +19,8 @@ app.registerExtension({
             const node = this;
             
             // Fixed default size
-            node.size = [400, 360];
-            node.setSize([400, 360]);
+            node.size = [400, 370];
+            node.setSize([400, 370]);
             
             // Simple video element
             const videoEl = document.createElement("video");
